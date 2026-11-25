@@ -305,16 +305,13 @@ work.
   but its message can mislead. Re-entry: when these fakes next change,
   report failures through return values checked on the test goroutine.
 
-- `DF-030` Non-`herdr-core` local control planes under shell-capable ZCode:
-  EPIC-017 denies `herdr-core` control-plane roots and sockets across every
-  provider live boundary, and Grok's index/commit `Bash` gate (`B-1`) adds
-  outbound Unix-socket, localhost IP, and local secret-root restrictions.
-  Shell-capable ZCode sessions can still reach other same-UID local control
-  planes outside `herdr-core` (for example operator `herdr`, `ssh-agent`,
-  `opencode`, and localhost APIs). Re-entry: prioritize a dedicated security
-  hardening pass extending control-plane and local-IPC denials to ZCode's outer
-  Seatbelt guard with live ZCode certification confirming app-server IPC and
-  normal review reads remain intact.
+- `DF-030` Integrated certification of ZCode local control-plane isolation.
+  The workspace profile runs shell-free. The index and commit profiles use the
+  shared `B-1` local socket and loopback restrictions. The managed namespace
+  guard also blocks projected credential reads by sibling Grok and ZCode panes
+  and by peers in another run. The spike and offline Darwin checks cover these
+  boundaries with disposable fixtures. `TASK-098` owns integrated
+  certification of the exact installed candidate.
 
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.

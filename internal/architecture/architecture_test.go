@@ -17,6 +17,45 @@ import (
 
 const modulePath = "github.com/irootkernel/mulgae/"
 
+func TestZCodeDesktopInternalsAreCompanionOwned(t *testing.T) {
+	root := repositoryRoot(t)
+	for _, name := range []string{
+		"zcode_protocol.go", "zcode_account.go", "zcode_keychain.go",
+		"zcode_protocol_test.go", "zcode_account_test.go", "zcode_keychain_live_test.go", "zcode_live_protocol_test.go",
+	} {
+		path := filepath.Join(root, "internal", "adapters", "providercli", name)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("retired adapter %s remains: %v", name, err)
+		}
+	}
+	for _, directory := range []string{"internal/adapters/environment", "internal/adapters/providercli", "internal/app/reviewrun", "internal/app/doctor", "internal/composition"} {
+		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			source, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, internal := range []string{
+				"Contents/MacOS/ZCode", "Contents/Resources/glm/", "Contents/Resources/zcode/", "zcode.cjs", "app.asar",
+				"zcode-builtin.json", "Info.plist", "CFBundleShortVersionString", "enc:v2:os", "keyring", "setting.json", "credentials.json",
+			} {
+				if strings.Contains(string(source), internal) {
+					t.Errorf("%s couples to ZCode Desktop internals via %q", entry.Name(), internal)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestProductionDependencyDirection(t *testing.T) {
 	root := repositoryRoot(t)
 	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, entry os.DirEntry, walkErr error) error {
@@ -327,10 +366,9 @@ func TestMakefileContract(t *testing.T) {
 	}
 	e2eTarget := text[releaseEnd:grokStart]
 	for _, required := range []string{
-		"zcode_app=", `test -d "$$zcode_app"`, "zcode_executable=", `test -x "$$zcode_executable"`,
-		"zcode_launcher=", `test -f "$$zcode_launcher"`,
+		"zcode_app=", `test -d "$$zcode_app"`,
 		"MULGAE_LIVE_ZCODE_APP_BUNDLE",
-		"-tags=liveprovider", "-run '^TestLiveZCodeCapability(CipherFixtures)?$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
+		"-tags=liveprovider", "-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$'", "MULGAE_E2E_BINARY", "MULGAE_E2E_PROJECT_ROOT",
 		"MULGAE_E2E_ZCODE_APP_BUNDLE",
 		"-tags=live_e2e", "-run '^Test(E2E|Live)'", "[test-e2e] failed; preserved private project:",
 	} {
@@ -338,9 +376,9 @@ func TestMakefileContract(t *testing.T) {
 			t.Errorf("test-e2e missing fail-closed family-capability token %q", required)
 		}
 	}
-	for _, forbidden := range []string{"MULGAE_LIVE_CODEX_BIN", "MULGAE_E2E_CODEX_HOME", "MULGAE_E2E_CODEX_FALLBACK_HOME"} {
+	for _, forbidden := range []string{"Contents/MacOS/", "Contents/Resources/", "MULGAE_LIVE_CODEX_BIN", "MULGAE_E2E_CODEX_HOME", "MULGAE_E2E_CODEX_FALLBACK_HOME"} {
 		if strings.Contains(e2eTarget, forbidden) {
-			t.Errorf("mandatory test-e2e still requires Codex token %q", forbidden)
+			t.Errorf("mandatory test-e2e still requires retired launch token %q", forbidden)
 		}
 	}
 	if strings.Contains(e2eTarget, "$(MAKE) test-grok") {

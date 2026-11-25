@@ -26,6 +26,30 @@ const EnvHerdrZCodeBin = "MULGAE_HERDR_ZCODE_BIN"
 
 const zcodeLauncherName = "herdr-zcode"
 
+// VerifyZCodeAppBundle checks the directory supplied to the trusted companion
+// without resolving or opening any Desktop component inside the bundle.
+func VerifyZCodeAppBundle(override string, excludedRoots ...string) error {
+	bundle := override
+	if bundle == "" {
+		bundle = "/Applications/ZCode.app"
+	}
+	if !validCanonicalAbsolutePath(bundle) {
+		return ErrUnsafeExecutable
+	}
+	if _, err := os.Lstat(bundle); errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	excluded, err := normalizeExcludedRoots(excludedRoots)
+	if err != nil {
+		return ErrUnsafeExecutable
+	}
+	path, err := resolveSafeDirectoryChain(bundle, uint32(unix.Geteuid()), excluded)
+	if err != nil || path != bundle {
+		return ErrUnsafeExecutable
+	}
+	return nil
+}
+
 // ErrZCodeCompanionTeardown reports that the launcher did not establish that
 // its supervised child was reaped.
 var ErrZCodeCompanionTeardown = errors.New("companion teardown could not be verified")
@@ -221,6 +245,7 @@ type ZCodeCompanionObservation struct {
 	AppVersion     string
 	AppBundle      string
 	MinimumVersion string
+	BelowMinimum   bool
 }
 
 // ObserveZCodeCompanion executes only the companion's offline diagnostics.
@@ -239,7 +264,7 @@ func ObserveZCodeCompanion(ctx context.Context, pkg ZCodePackage, appBundle stri
 		OSC7501      bool     `json:"osc7501"`
 		Capabilities []string `json:"capabilities"`
 	}
-	if err := runZCodeDiagnostic(ctx, pkg, &version, append([]string{"--version"}, options...)...); err != nil {
+	if _, err := runZCodeDiagnostic(ctx, pkg, &version, false, append([]string{"--version"}, options...)...); err != nil {
 		return ZCodeCompanionObservation{}, err
 	}
 	if version.Name != zcodeLauncherName || version.Version == "" || !version.OSC7501 || !slices.Contains(version.Runtimes, "core") {
@@ -250,42 +275,53 @@ func ObserveZCodeCompanion(ctx context.Context, pkg ZCodePackage, appBundle stri
 			return ZCodeCompanionObservation{}, fmt.Errorf("companion does not advertise %s", capability)
 		}
 	}
+	observation := ZCodeCompanionObservation{Version: version.Version}
 	var desktop struct {
 		Compatible     bool   `json:"compatible"`
+		Reason         string `json:"reason"`
 		AppVersion     string `json:"appVersion"`
 		AppBundle      string `json:"appBundle"`
 		MinimumVersion string `json:"minZcodeAppVersion"`
 	}
-	if err := runZCodeDiagnostic(ctx, pkg, &desktop, append([]string{"--check-desktop"}, options...)...); err != nil {
-		return ZCodeCompanionObservation{}, err
+	incompatibleExit, err := runZCodeDiagnostic(ctx, pkg, &desktop, true, append([]string{"--check-desktop"}, options...)...)
+	if err != nil {
+		return observation, err
 	}
-	if !desktop.Compatible || desktop.AppVersion == "" || desktop.MinimumVersion == "" ||
-		!validCanonicalAbsolutePath(desktop.AppBundle) || (appBundle != "" && appBundle != desktop.AppBundle) {
-		return ZCodeCompanionObservation{}, fmt.Errorf("invalid companion desktop observation")
+	expectedBundle := appBundle
+	if expectedBundle == "" {
+		expectedBundle = "/Applications/ZCode.app"
+	}
+	if desktop.AppVersion == "" || desktop.MinimumVersion == "" || desktop.AppBundle != expectedBundle ||
+		!(desktop.Compatible && !incompatibleExit && desktop.Reason == "" ||
+			!desktop.Compatible && incompatibleExit && desktop.Reason == "app_version_below_minimum") {
+		return observation, fmt.Errorf("invalid companion desktop observation")
 	}
 	return ZCodeCompanionObservation{
 		Version: version.Version, AppVersion: desktop.AppVersion,
-		AppBundle: desktop.AppBundle, MinimumVersion: desktop.MinimumVersion,
+		AppBundle: desktop.AppBundle, MinimumVersion: desktop.MinimumVersion, BelowMinimum: incompatibleExit,
 	}, nil
 }
 
-func runZCodeDiagnostic(ctx context.Context, pkg ZCodePackage, output any, args ...string) error {
+func runZCodeDiagnostic(ctx context.Context, pkg ZCodePackage, output any, allowIncompatibleExit bool, args ...string) (bool, error) {
 	var capture zcodeDiagnosticCapture
-	if err := pkg.RunOfflineCommand(ctx, 10*time.Second, "/private/var/empty", &capture, args...); err != nil {
+	err := pkg.RunOfflineCommand(ctx, 10*time.Second, "/private/var/empty", &capture, args...)
+	var exit *exec.ExitError
+	incompatibleExit := allowIncompatibleExit && errors.As(err, &exit) && exit.ExitCode() == 1
+	if err != nil && !incompatibleExit {
 		if errors.Is(err, ErrUnsafeExecutable) || errors.Is(err, ErrZCodeCompanionTeardown) || errors.Is(err, ErrZCodeCompanionTimeout) ||
 			errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
+			return false, err
 		}
-		return fmt.Errorf("companion diagnostic failed")
+		return false, fmt.Errorf("companion diagnostic failed")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(capture))
 	if err := decoder.Decode(output); err != nil {
-		return fmt.Errorf("invalid companion diagnostic JSON")
+		return false, fmt.Errorf("invalid companion diagnostic JSON")
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("trailing companion diagnostic content")
+		return false, fmt.Errorf("trailing companion diagnostic content")
 	}
-	return nil
+	return incompatibleExit, nil
 }
 
 // RunOfflineCommand starts an exact verified companion. Cancellation first

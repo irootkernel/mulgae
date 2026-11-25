@@ -52,11 +52,11 @@ type VersionGuidance struct {
 
 var guidance = [...]VersionGuidance{
 	// ZCode launcher protocol guidance is independent from the app version.
-	{Family: FamilyZCode, Minimum: "0.16.5", VerifiedLatest: "0.16.5"},
+	{Family: FamilyZCode, Minimum: "0.2.0", VerifiedLatest: "0.2.0"},
 	{Family: FamilyGrok, Minimum: "1.0.89", VerifiedLatest: "1.0.89"},
 }
 
-var zcodeApplicationGuidance = VersionGuidance{Family: FamilyZCode, Minimum: "3.12.3", VerifiedLatest: "3.12.3"}
+var zcodeApplicationGuidance = VersionGuidance{Family: FamilyZCode, Minimum: "3.18.2", VerifiedLatest: "4.0.0"}
 
 // ZCodeApplicationGuidance returns the independently enforced app-release
 // compatibility floor and latest verified release.
@@ -111,24 +111,15 @@ func classifyVersionAgainstGuidance(familyGuidance VersionGuidance, text string)
 	return VersionYellow
 }
 
-const (
-	// ZCodeAppBundle is the standard ZCode application bundle on Darwin.
-	ZCodeAppBundle = "/Applications/ZCode.app"
-	// ZCodeExecutableRelativePath is the app-owned Electron runtime used as Node.
-	ZCodeExecutableRelativePath = "Contents/MacOS/ZCode"
-	// ZCodeLauncherRelativePath is the app-server launcher bundled by ZCode.
-	ZCodeLauncherRelativePath = "Contents/Resources/glm/zcode.cjs"
-	// ZCodeProviderConfigRelativePath is the provider catalog certified with the app bundle.
-	ZCodeProviderConfigRelativePath = "Contents/Resources/config/provider/zcode-builtin.json"
-	// ZCodeApplicationMetadataRelativePath contains the independently observed app version.
-	ZCodeApplicationMetadataRelativePath = "Contents/Info.plist"
-)
+// ZCodeAppBundle is the standard ZCode Desktop location.
+const ZCodeAppBundle = "/Applications/ZCode.app"
 
 // DiscoveredProviderProfile is an immutable identity-only executable discovery result.
 // Discovery never launches a provider and is therefore not routable until a qualified
 // version result is bound to this exact invocation shape.
 type DiscoveredProviderProfile struct {
 	family                           Family
+	zcodeCompanion                   ports.ZCodeCompanionObservation
 	version                          string
 	classification                   VersionClassification
 	executable                       string
@@ -152,15 +143,8 @@ func observeExecutableIdentity(
 	return inspector.ObserveExecutableIdentity(ctx, name)
 }
 
-func observeReadableFileIdentity(
-	ctx context.Context, inspector ports.EnvironmentInspector, name string,
-) (ports.FileIdentityObservation, error) {
-	return inspector.ObserveReadableFileIdentity(ctx, name)
-}
-
 // DiscoverProviderProfile discovers one allowlisted family without observing
-// any other provider. Discovery never executes the provider. ZCode has distinct
-// app-owned Electron runtime and CJS launcher identities.
+// any other provider. ZCode uses isolated companion diagnostics.
 func DiscoverProviderProfile(ctx context.Context, inspector ports.EnvironmentInspector, family Family) (DiscoveredProviderProfile, error) {
 	return DiscoverProviderProfileWithOverride(ctx, inspector, family, "")
 }
@@ -168,177 +152,85 @@ func DiscoverProviderProfile(ctx context.Context, inspector ports.EnvironmentIns
 // DiscoverProviderProfileWithOverride observes one effective provider tuple.
 // For ZCode the override is an application bundle; for direct providers it is
 // an executable. An empty override selects the family-owned default.
-func DiscoverProviderProfileWithOverride(ctx context.Context, inspector ports.EnvironmentInspector, family Family, pathOverride string) (DiscoveredProviderProfile, error) {
-	if inspector == nil {
-		return DiscoveredProviderProfile{}, fmt.Errorf("review run: environment inspector unavailable")
+func DiscoverProviderProfileWithOverride(ctx context.Context, inspector ports.EnvironmentInspector, family Family, pathOverride string, excluded ...string) (DiscoveredProviderProfile, error) {
+	if inspector == nil || !family.Valid() {
+		return DiscoveredProviderProfile{}, fmt.Errorf("review run: invalid provider discovery authority")
 	}
-	if !family.Valid() {
-		return DiscoveredProviderProfile{}, fmt.Errorf("review run: unsupported provider family %q", family)
+	if pathOverride != "" && !canonicalAbsolute(pathOverride) {
+		return DiscoveredProviderProfile{}, fmt.Errorf("review run: configured provider path is not canonical absolute")
+	}
+	if family == FamilyZCode {
+		observer, ok := inspector.(ports.ZCodeCompanionObserver)
+		if !ok {
+			return DiscoveredProviderProfile{family: family, reason: "herdr_zcode_observation_failed"}, nil
+		}
+		observation, err := observer.ObserveZCodeCompanion(ctx, pathOverride, excluded...)
+		if err != nil {
+			if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
+				return unavailableZCodeCompanionProfile(observation), nil
+			}
+			return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "herdr_zcode", err: err}
+		}
+		if observation == (ports.ZCodeCompanionObservation{}) {
+			return DiscoveredProviderProfile{family: family, reason: "herdr_zcode_missing"}, nil
+		}
+		desktopClass := classifyZCodeCompanionDesktop(observation)
+		if !observation.Valid() || !validVersionText(observation.Version) || desktopClass == VersionUnknown ||
+			observation.DesktopBelowMinimum != (desktopClass == VersionRed) {
+			return unavailableZCodeCompanionProfile(observation), nil
+		}
+		return DiscoveredProviderProfile{
+			family: family, zcodeCompanion: observation, executable: observation.Executable, launcher: observation.Executable,
+			sha256: observation.ExecutableSHA256, launcherSHA256: observation.ExecutableSHA256, argv: []string{observation.Executable},
+			applicationVersion: observation.AppVersion, applicationVersionClassification: desktopClass,
+			reason: "unqualified_discovery",
+		}, nil
 	}
 	name := string(family)
-	if family == FamilyZCode {
-		bundle := ZCodeAppBundle
-		if pathOverride != "" {
-			bundle = pathOverride
-		}
-		if !canonicalAbsolute(bundle) {
-			return DiscoveredProviderProfile{}, fmt.Errorf("review run: configured zcode app bundle is not canonical absolute")
-		}
-		name = filepath.Join(bundle, filepath.FromSlash(ZCodeExecutableRelativePath))
-	} else if pathOverride != "" {
-		if !canonicalAbsolute(pathOverride) {
-			return DiscoveredProviderProfile{}, fmt.Errorf("review run: configured %s executable is not canonical absolute", family)
-		}
+	if pathOverride != "" {
 		name = pathOverride
 	}
-	executableUnavailable := false
-	executableUnavailableReason := ports.IdentityObservationReasonObservationFailed
-	var executable ports.ExecutableObservation
-	var err error
-	if family == FamilyZCode {
-		executable, err = observeZCodeAppExecutableIdentity(ctx, inspector, name)
-	} else {
-		executable, err = observeExecutableIdentity(ctx, inspector, name)
-	}
+	executable, err := observeExecutableIdentity(ctx, inspector, name)
 	if err != nil {
 		if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
-			executableUnavailable = true
-			if reason, ok := ports.IdentityObservationReason(err); ok {
-				executableUnavailableReason = reason
+			reason := "executable_observation_failed"
+			if reasonCode, _ := ports.IdentityObservationReason(err); reasonCode == ports.IdentityObservationReasonNonExecutable {
+				reason = "executable_not_executable"
 			}
-			executable, err = ports.NewExecutableObservation(name, false, "", "", "")
+			return DiscoveredProviderProfile{family: family, reason: reason}, nil
 		}
-	}
-	if err != nil {
 		return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "executable", err: fmt.Errorf("review run: discover %s executable: %w", family, err)}
 	}
-	if family != FamilyZCode {
-		profile := discoveredProviderProfile(family, executable, ports.FileIdentityObservation{}, ports.FileIdentityObservation{})
-		if executableUnavailable {
-			profile.reason = "executable_observation_failed"
-			if executableUnavailableReason == ports.IdentityObservationReasonNonExecutable {
-				profile.reason = "executable_not_executable"
-			}
-		}
-		return profile, nil
-	}
-	bundle := ZCodeAppBundle
-	if pathOverride != "" {
-		bundle = pathOverride
-	}
-	launcherName := filepath.Join(bundle, filepath.FromSlash(ZCodeLauncherRelativePath))
-	launcherUnavailable := false
-	launcherUnavailableReason := ports.IdentityObservationReasonObservationFailed
-	launcher, err := observeReadableFileIdentity(ctx, inspector, launcherName)
-	if err != nil {
-		if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
-			launcherUnavailable = true
-			if reason, ok := ports.IdentityObservationReason(err); ok {
-				launcherUnavailableReason = reason
-			}
-			launcher, err = ports.NewFileIdentityObservation(launcherName, false, "", "")
+	return discoveredProviderProfile(family, executable), nil
+}
+
+func unavailableZCodeCompanionProfile(observation ports.ZCodeCompanionObservation) DiscoveredProviderProfile {
+	if !observation.PackageVerified() {
+		observation = ports.ZCodeCompanionObservation{}
+	} else {
+		observation.AppVersion, observation.AppBundle, observation.MinimumAppVersion = "", "", ""
+		observation.DesktopBelowMinimum = false
+		if !validVersionText(observation.Version) {
+			observation.Version = ""
 		}
 	}
-	if err != nil {
-		return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "launcher", err: fmt.Errorf("review run: discover %s launcher: %w", family, err)}
+	return DiscoveredProviderProfile{
+		family: FamilyZCode, zcodeCompanion: observation, reason: "herdr_zcode_observation_failed",
 	}
-	providerConfig := ports.FileIdentityObservation{}
-	providerConfigUnavailable := false
-	providerConfigUnavailableReason := ports.IdentityObservationReasonObservationFailed
-	if launcher.Found() && !launcherUnavailable {
-		providerConfig, providerConfigUnavailable, providerConfigUnavailableReason, err = observeZCodeProviderConfigIdentity(ctx, inspector, bundle)
-		if err != nil {
-			return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "provider_config", err: fmt.Errorf("review run: discover %s provider config: %w", family, err)}
-		}
+}
+
+func classifyZCodeCompanionDesktop(observation ports.ZCodeCompanionObservation) VersionClassification {
+	if !validVersionText(observation.AppVersion) || !validVersionText(observation.MinimumAppVersion) {
+		return VersionUnknown
 	}
-	applicationMetadataName := filepath.Join(bundle, filepath.FromSlash(ZCodeApplicationMetadataRelativePath))
-	applicationMetadata, applicationMetadataUnavailable, applicationMetadataReason, err := observeZCodeApplicationMetadata(ctx, inspector, applicationMetadataName)
-	if err != nil {
-		return DiscoveredProviderProfile{}, &providerIdentityComponentError{component: "application_metadata", err: fmt.Errorf("review run: discover %s application metadata: %w", family, err)}
-	}
-	profile := discoveredProviderProfile(family, executable, launcher, providerConfig)
-	if applicationMetadata.Valid() {
-		profile.applicationVersion = applicationMetadata.Version()
-		profile.applicationVersionClassification = ClassifyZCodeApplicationVersion(applicationMetadata.Version())
-		profile.applicationMetadata = applicationMetadata.Path()
-		profile.applicationMetadataSHA256 = applicationMetadata.SHA256()
-	}
-	switch {
-	case executableUnavailable:
-		profile.reason = "executable_observation_failed"
-		if executableUnavailableReason == ports.IdentityObservationReasonNonExecutable {
-			profile.reason = "executable_not_executable"
-		}
-	case launcherUnavailable && executable.Found():
-		profile.reason = "launcher_observation_failed"
-		if launcherUnavailableReason == ports.IdentityObservationReasonUnreadable {
-			profile.reason = "launcher_unreadable"
-		}
-	case providerConfigUnavailable && executable.Found() && launcher.Found():
-		profile.reason = "provider_config_observation_failed"
-		if providerConfigUnavailableReason == ports.IdentityObservationReasonUnreadable {
-			profile.reason = "provider_config_unreadable"
-		}
-	case applicationMetadataUnavailable && executable.Found() && launcher.Found() && providerConfig.Found():
-		profile.reason = "application_metadata_observation_failed"
-		if applicationMetadataReason == ports.IdentityObservationReasonUnreadable {
-			profile.reason = "application_metadata_unreadable"
-		} else if applicationMetadataReason == ports.IdentityObservationReasonMalformed {
-			profile.reason = "application_version_malformed"
-		}
-	case profile.applicationVersion != "" && !validVersionText(profile.applicationVersion):
-		profile.reason = "application_version_malformed"
-	case profile.applicationVersionClassification == VersionRed:
-		profile.reason = "application_version_ineligible"
-	}
-	return profile, nil
+	guidance := zcodeApplicationGuidance
+	guidance.Minimum = observation.MinimumAppVersion
+	return classifyVersionAgainstGuidance(guidance, observation.AppVersion)
 }
 
 func validVersionText(value string) bool {
 	_, ok := parseVersion(value)
 	return ok
-}
-
-func observeZCodeApplicationMetadata(ctx context.Context, inspector ports.EnvironmentInspector, name string) (ports.ApplicationMetadataObservation, bool, ports.IdentityObservationFailureReason, error) {
-	observation, err := inspector.ObserveApplicationMetadata(ctx, name)
-	if err == nil {
-		return observation, false, "", nil
-	}
-	if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
-		reason := ports.IdentityObservationReasonObservationFailed
-		if observed, ok := ports.IdentityObservationReason(err); ok {
-			reason = observed
-		}
-		return ports.ApplicationMetadataObservation{}, true, reason, nil
-	}
-	return ports.ApplicationMetadataObservation{}, false, "", err
-}
-
-func observeZCodeProviderConfigIdentity(ctx context.Context, inspector ports.EnvironmentInspector, appBundle string) (ports.FileIdentityObservation, bool, ports.IdentityObservationFailureReason, error) {
-	candidate := filepath.Join(appBundle, filepath.FromSlash(ZCodeProviderConfigRelativePath))
-	observation, err := observeReadableFileIdentity(ctx, inspector, candidate)
-	if err != nil {
-		if kind, classified := ports.IdentityObservationFailure(err); classified && kind == ports.IdentityObservationUnavailable {
-			reason := ports.IdentityObservationReasonObservationFailed
-			if observed, ok := ports.IdentityObservationReason(err); ok {
-				reason = observed
-			}
-			return ports.FileIdentityObservation{}, true, reason, nil
-		}
-		return ports.FileIdentityObservation{}, false, "", err
-	}
-	return observation, false, "", nil
-}
-
-func observeZCodeAppExecutableIdentity(ctx context.Context, inspector ports.EnvironmentInspector, name string) (ports.ExecutableObservation, error) {
-	file, err := observeReadableFileIdentity(ctx, inspector, name)
-	if err != nil {
-		return ports.ExecutableObservation{}, err
-	}
-	if !file.Found() {
-		return ports.NewExecutableObservation(name, false, "", "", "")
-	}
-	return observeExecutableIdentity(ctx, inspector, name)
 }
 
 // DiscoverProviderProfiles discovers every allowlisted family in canonical
@@ -358,7 +250,7 @@ func DiscoverProviderProfiles(ctx context.Context, inspector ports.EnvironmentIn
 
 // DiscoverConfiguredProviderProfiles observes only the exact app-bundle or
 // executable paths admitted from the project-local configuration.
-func DiscoverConfiguredProviderProfiles(ctx context.Context, inspector ports.EnvironmentInspector, configured map[Family][]string) ([]DiscoveredProviderProfile, error) {
+func DiscoverConfiguredProviderProfiles(ctx context.Context, inspector ports.EnvironmentInspector, configured map[Family][]string, excluded ...string) ([]DiscoveredProviderProfile, error) {
 	if inspector == nil || len(configured) == 0 {
 		return nil, fmt.Errorf("review run: configured provider discovery unavailable")
 	}
@@ -382,7 +274,7 @@ func DiscoverConfiguredProviderProfiles(ctx context.Context, inspector ports.Env
 				return nil, fmt.Errorf("review run: configured %s path is not canonical absolute", family)
 			}
 		}
-		profile, err := DiscoverProviderProfileWithOverride(ctx, inspector, family, paths[0])
+		profile, err := DiscoverProviderProfileWithOverride(ctx, inspector, family, paths[0], excluded...)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
@@ -391,13 +283,8 @@ func DiscoverConfiguredProviderProfiles(ctx context.Context, inspector ports.Env
 				reason := "executable_security_failure"
 				var component *providerIdentityComponentError
 				if errors.As(err, &component) {
-					switch component.component {
-					case "launcher":
-						reason = "launcher_security_failure"
-					case "provider_config":
-						reason = "provider_config_security_failure"
-					case "application_metadata":
-						reason = "application_metadata_security_failure"
+					if component.component == "herdr_zcode" {
+						reason = "herdr_zcode_unsafe_identity"
 					}
 				}
 				profiles = append(profiles, DiscoveredProviderProfile{family: family, reason: reason})
@@ -439,71 +326,37 @@ func ConfiguredProviderSecurityFamilies(err error) []Family {
 	return append([]Family(nil), failure.families...)
 }
 
-func discoveredProviderProfile(
-	family Family, executableObservation ports.ExecutableObservation, launcherObservation, providerConfigObservation ports.FileIdentityObservation,
-) DiscoveredProviderProfile {
-	profile := DiscoveredProviderProfile{
-		family: family,
-		reason: "executable_not_found",
-	}
-	if executableObservation.Found() {
-		executable := executableObservation.ResolvedPath()
-		if !canonicalAbsolute(executable) {
-			profile.reason = "invalid_executable_provenance"
-			return profile
-		}
-		profile.executable = executable
-		profile.sha256 = executableObservation.SHA256()
-		profile.argv = []string{executable}
-	}
-	if family != FamilyZCode {
-		if profile.executable == "" {
-			return profile
-		}
-		profile.launcher = profile.executable
-		profile.launcherSHA256 = profile.sha256
-		profile.reason = "unqualified_discovery"
+func discoveredProviderProfile(family Family, observation ports.ExecutableObservation) DiscoveredProviderProfile {
+	profile := DiscoveredProviderProfile{family: family, reason: "executable_not_found"}
+	if !observation.Found() {
 		return profile
 	}
-	if launcherObservation.Found() {
-		launcher := launcherObservation.ResolvedPath()
-		if !canonicalAbsolute(launcher) {
-			profile.reason = "invalid_launcher_provenance"
-			return profile
-		}
-		profile.launcher = launcher
-		profile.launcherSHA256 = launcherObservation.SHA256()
-	}
-	if profile.executable == "" {
+	executable := observation.ResolvedPath()
+	if !canonicalAbsolute(executable) {
+		profile.reason = "invalid_executable_provenance"
 		return profile
 	}
-	if profile.launcher == "" {
-		profile.reason = "launcher_not_found"
-		return profile
-	}
-	if providerConfigObservation.Found() {
-		providerConfig := providerConfigObservation.ResolvedPath()
-		if !canonicalAbsolute(providerConfig) {
-			profile.reason = "invalid_provider_config_provenance"
-			return profile
-		}
-		profile.providerConfig = providerConfig
-		profile.providerConfigSHA256 = providerConfigObservation.SHA256()
-	}
-	if profile.providerConfig == "" {
-		profile.reason = "provider_config_not_found"
-		return profile
-	}
-	profile.argv = append(profile.argv, profile.launcher)
+	profile.executable, profile.launcher = executable, executable
+	profile.sha256, profile.launcherSHA256 = observation.SHA256(), observation.SHA256()
+	profile.argv = []string{executable}
 	profile.reason = "unqualified_discovery"
 	return profile
 }
 
 // WithQualifiedVersion binds a version returned by the isolated exact
-// [executable, launcher, "--version"] invocation. Direct families use the
-// executable as their launcher.
+// version invocation for the admitted executable.
 func (profile DiscoveredProviderProfile) WithQualifiedVersion(argv []string, version string) DiscoveredProviderProfile {
 	expected := append(profile.Argv(), "--version")
+	if profile.zcodeCompanion.Valid() {
+		expected = append(expected, "--json")
+		if profile.zcodeCompanion.BundleOverride != "" {
+			expected = append(expected, "--app-bundle", profile.zcodeCompanion.BundleOverride)
+		}
+		if version != profile.zcodeCompanion.Version {
+			profile.reason = "version_identity_drift"
+			return profile
+		}
+	}
 	if !reflect.DeepEqual(argv, expected) {
 		profile.available = false
 		profile.reason = "invalid_qualified_version_invocation"
@@ -511,7 +364,7 @@ func (profile DiscoveredProviderProfile) WithQualifiedVersion(argv []string, ver
 	}
 	profile.version = version
 	profile.classification = ClassifyVersion(profile.family, version)
-	if profile.executable == "" || profile.launcher == "" || profile.family == FamilyZCode && profile.providerConfig == "" {
+	if profile.executable == "" || profile.launcher == "" || profile.family == FamilyZCode && !profile.zcodeCompanion.Valid() {
 		profile.reason = "unqualified_discovery"
 		return profile
 	}
@@ -524,7 +377,7 @@ func (profile DiscoveredProviderProfile) WithQualifiedVersion(argv []string, ver
 		return profile
 	}
 	if profile.family == FamilyZCode {
-		if profile.applicationVersion == "" || profile.applicationMetadata == "" || profile.applicationMetadataSHA256 == "" || !validVersionText(profile.applicationVersion) {
+		if profile.applicationVersion == "" || !validVersionText(profile.applicationVersion) {
 			profile.reason = "application_version_unavailable"
 			return profile
 		}
@@ -587,6 +440,18 @@ func (profile DiscoveredProviderProfile) ApplicationMetadata() string {
 }
 func (profile DiscoveredProviderProfile) ApplicationMetadataSHA256() string {
 	return profile.applicationMetadataSHA256
+}
+
+func (profile DiscoveredProviderProfile) ZCodeCompanion() ports.ZCodeCompanionObservation {
+	return profile.zcodeCompanion
+}
+
+func (profile DiscoveredProviderProfile) matchesCompanion(definition ports.ProviderRuntimeDefinition) bool {
+	if profile.family != FamilyZCode {
+		return true
+	}
+	native, ok := definition.(ports.ProviderZCodeCompanionDefinition)
+	return ok && profile.zcodeCompanion.Valid() && profile.zcodeCompanion == native.ZCodeCompanion()
 }
 
 // Available reports whether executable discovery and version-floor eligibility passed.
@@ -670,7 +535,7 @@ func (identity Identity) complete() bool {
 		return false
 	}
 	if identity.Family == FamilyZCode {
-		return identity.ApplicationVersion != "" && canonicalAbsolute(identity.ApplicationMetadata) && identity.ApplicationMetadataSHA256 != ""
+		return identity.ApplicationVersion != "" && identity.Launcher == identity.Executable && identity.LauncherSHA256 == identity.ExecutableSHA256
 	}
 	return identity.Launcher == identity.Executable && identity.LauncherSHA256 == identity.ExecutableSHA256 &&
 		identity.ApplicationVersion == "" && identity.ApplicationMetadata == "" && identity.ApplicationMetadataSHA256 == ""

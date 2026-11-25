@@ -176,10 +176,6 @@ func (source *ProductionQualifiedRunCandidateSource) newQualifiedRunCandidatesFo
 
 func (template productionCandidateTemplate) definition(builder ports.ProviderRuntimeBuilder, profile DiscoveredProviderProfile) (ports.ProviderRuntimeDefinition, error) {
 	baseArgv := append([]string{profile.Executable()}, template.baseArgv...)
-	if template.family == FamilyZCode {
-		baseArgv = []string{profile.Executable(), profile.Launcher()}
-		baseArgv = append(baseArgv, template.baseArgv...)
-	}
 	if nilInterface(builder) {
 		return nil, fmt.Errorf("provider runtime builder is required")
 	}
@@ -190,13 +186,13 @@ func (template productionCandidateTemplate) definition(builder ports.ProviderRun
 	}
 	profileGeneration := productionProfileGeneration
 	if template.family == FamilyZCode {
-		digest := sha256.Sum256([]byte(zcodeProductionProfileGeneration + "\x00" + profile.ZCodeProviderConfig() + "\x00" + profile.ZCodeProviderConfigSHA256()))
+		digest := sha256.Sum256([]byte(zcodeProductionProfileGeneration + "\x00" + profile.zcodeCompanion.PackageSHA256 + "\x00" + profile.zcodeCompanion.AppBundle + "\x00" + profile.zcodeCompanion.BundleOverride + "\x00" + profile.zcodeCompanion.AppVersion + "\x00" + profile.zcodeCompanion.Version))
 		profileGeneration = fmt.Sprintf("%s:%x", zcodeProductionProfileGeneration, digest)
 	}
 	return builder.BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: string(template.family), Instance: template.instance, Executable: profile.Executable(), ExecutableSHA256: profile.SHA256(),
 		Launcher: profile.Launcher(), LauncherSHA256: profile.LauncherSHA256(),
-		ZCodeProviderConfig: profile.ZCodeProviderConfig(), ZCodeProviderConfigSHA256: profile.ZCodeProviderConfigSHA256(),
+		ZCodeCompanion:     profile.zcodeCompanion,
 		ApplicationVersion: profile.ApplicationVersion(), ApplicationMetadata: profile.ApplicationMetadata(), ApplicationMetadataSHA256: profile.ApplicationMetadataSHA256(),
 		ProfileID: template.profileID, ProfileGeneration: profileGeneration, RuntimeSafetyPolicyIdentity: template.runtimeSafetyPolicyIdentity,
 		ZCodeModel: template.zcodeModel, ZCodeReasoningEffort: template.zcodeReasoningEffort,
@@ -260,9 +256,7 @@ func productionCandidateTemplatesWithProviderSettingsAndTimeouts(identities map[
 			switch family {
 			case FamilyZCode:
 				template.zcodeModel, template.zcodeReasoningEffort = zcodeModel, zcodeReasoningEffort
-				// The app-server conversation owns the packet; the argv never
-				// carries the prompt or tool policy.
-				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelProtocol, -1
+				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelTerminal, -1
 			case FamilyGrok:
 				template.grokModel, template.grokReasoningEffort = grokModel, grokReasoningEffort
 				template.transportChannel, template.transportArgvIndex = ports.ProviderPacketChannelTerminal, -1
@@ -337,13 +331,7 @@ func validateProductionCandidateTemplates(templates []productionCandidateTemplat
 		if !template.limits.Valid() || template.limits.Timeout() < productionMinimumProviderTimeout || template.limits.Timeout() > productionMaximumProviderTimeout {
 			return fmt.Errorf("invalid template timeout")
 		}
-		validTransport := template.transportChannel == ports.ProviderPacketChannelArgvLiteral && template.transportArgvIndex >= 0
-		if template.family == FamilyZCode {
-			validTransport = template.transportChannel == ports.ProviderPacketChannelProtocol && template.transportArgvIndex == -1
-		}
-		if template.family == FamilyGrok {
-			validTransport = template.transportChannel == ports.ProviderPacketChannelTerminal && template.transportArgvIndex == -1
-		}
+		validTransport := template.transportChannel == ports.ProviderPacketChannelTerminal && template.transportArgvIndex == -1
 		if !template.family.Valid() || template.runtimeSafetyPolicyIdentity == "" || !validTransport || template.transportReference != "" ||
 			!validIdentity || len(template.supportedRoles) == 0 {
 			return fmt.Errorf("invalid template policy identity")
@@ -483,80 +471,38 @@ func validateStartupProfiles(profiles []DiscoveredProviderProfile) error {
 		if profile.Version() != "" || profile.Classification() != "" || profile.Available() {
 			return fmt.Errorf("review run: startup profile is not identity-only")
 		}
-		if profileMissingOperationalIdentity(profile) {
-			if profile.Family() == FamilyZCode && !validPartialZCodeIdentity(profile) {
-				return fmt.Errorf("review run: malformed unavailable ZCode identity")
-			}
-			switch {
-			case profile.Executable() == "":
-				if profile.Family() != FamilyZCode && (profile.Launcher() != "" || profile.ZCodeProviderConfig() != "" || profile.ApplicationMetadata() != "" || profile.ApplicationVersion() != "" || profile.LauncherSHA256() != "" || profile.ZCodeProviderConfigSHA256() != "" || profile.ApplicationMetadataSHA256() != "") ||
-					profile.SHA256() != "" || len(profile.Argv()) != 0 || profile.Reason() != "executable_not_found" && profile.Reason() != "executable_not_executable" && profile.Reason() != "executable_observation_failed" {
-					return fmt.Errorf("review run: malformed unavailable startup profile")
+		if profile.Family() == FamilyZCode {
+			if profile.zcodeCompanion.Valid() {
+				if profile.Executable() != profile.zcodeCompanion.Executable || profile.SHA256() != profile.zcodeCompanion.ExecutableSHA256 ||
+					profile.Launcher() != profile.Executable() || profile.LauncherSHA256() != profile.SHA256() ||
+					!reflect.DeepEqual(profile.Argv(), []string{profile.Executable()}) {
+					return fmt.Errorf("review run: unsafe companion provenance")
 				}
-			case profile.Launcher() == "" && (!canonicalAbsolute(profile.Executable()) || profile.SHA256() == "" || !reflect.DeepEqual(profile.Argv(), []string{profile.Executable()}) || profile.Reason() != "launcher_not_found" && profile.Reason() != "launcher_unreadable" && profile.Reason() != "launcher_observation_failed"):
-				return fmt.Errorf("review run: malformed unavailable startup profile")
-			case profile.Family() == FamilyZCode && profile.Launcher() != "" && profile.ZCodeProviderConfig() == "" &&
-				(!canonicalAbsolute(profile.Executable()) || !canonicalAbsolute(profile.Launcher()) || profile.SHA256() == "" || profile.LauncherSHA256() == "" ||
-					!reflect.DeepEqual(profile.Argv(), []string{profile.Executable()}) || profile.Reason() != "provider_config_not_found" && profile.Reason() != "provider_config_unreadable" && profile.Reason() != "provider_config_observation_failed"):
-				return fmt.Errorf("review run: malformed unavailable ZCode provider config")
-			case profile.Family() == FamilyZCode && profile.Executable() != "" && profile.Launcher() != "" && profile.ZCodeProviderConfig() != "" && profile.ApplicationMetadata() == "" &&
-				(profile.Reason() != "application_metadata_unreadable" && profile.Reason() != "application_metadata_observation_failed" && profile.Reason() != "application_version_malformed"):
-				return fmt.Errorf("review run: malformed unavailable ZCode application metadata")
+			} else if profile.Executable() != "" || (profile.Reason() != "herdr_zcode_missing" && profile.Reason() != "herdr_zcode_observation_failed") {
+				return fmt.Errorf("review run: malformed unavailable companion identity")
 			}
 			continue
 		}
-		eligibleForQualification := profile.Reason() == "unqualified_discovery" || profile.Family() == FamilyZCode &&
-			(profile.Reason() == "application_version_ineligible" && profile.ApplicationVersionClassification() == VersionRed ||
-				profile.Reason() == "application_version_malformed" && profile.ApplicationVersionClassification() == VersionUnknown)
-		if !eligibleForQualification || !canonicalAbsolute(profile.Executable()) || !canonicalAbsolute(profile.Launcher()) || profile.SHA256() == "" || profile.LauncherSHA256() == "" {
+		if profileMissingOperationalIdentity(profile) {
+			if profile.Executable() != "" || profile.Launcher() != "" || profile.SHA256() != "" ||
+				profile.LauncherSHA256() != "" || len(profile.Argv()) != 0 ||
+				(profile.Reason() != "executable_not_found" && profile.Reason() != "executable_not_executable" && profile.Reason() != "executable_observation_failed") {
+				return fmt.Errorf("review run: malformed unavailable startup profile")
+			}
+			continue
+		}
+		if profile.Reason() != "unqualified_discovery" || !canonicalAbsolute(profile.Executable()) ||
+			profile.Launcher() != profile.Executable() || profile.SHA256() == "" || profile.LauncherSHA256() != profile.SHA256() ||
+			!reflect.DeepEqual(profile.Argv(), []string{profile.Executable()}) {
 			return fmt.Errorf("review run: unsafe startup provider provenance")
-		}
-		if profile.Family() == FamilyZCode && (!canonicalAbsolute(profile.ZCodeProviderConfig()) || profile.ZCodeProviderConfigSHA256() == "") ||
-			profile.Family() != FamilyZCode && (profile.ZCodeProviderConfig() != "" || profile.ZCodeProviderConfigSHA256() != "") {
-			return fmt.Errorf("review run: provider config provenance drift")
-		}
-		validApplicationVersion := validVersionText(profile.ApplicationVersion()) ||
-			profile.Reason() == "application_version_malformed" && profile.ApplicationVersionClassification() == VersionUnknown
-		if profile.Family() == FamilyZCode && (!canonicalAbsolute(profile.ApplicationMetadata()) || profile.ApplicationMetadataSHA256() == "" || !validApplicationVersion) ||
-			profile.Family() != FamilyZCode && (profile.ApplicationVersion() != "" || profile.ApplicationMetadata() != "" || profile.ApplicationMetadataSHA256() != "") {
-			return fmt.Errorf("review run: application metadata provenance drift")
-		}
-		want := []string{profile.Executable()}
-		if profile.Family() == FamilyZCode {
-			want = append(want, profile.Launcher())
-		}
-		if !reflect.DeepEqual(profile.Argv(), want) {
-			return fmt.Errorf("review run: startup provider argv drift")
-		}
-		if profile.Family() != FamilyZCode && (profile.Launcher() != profile.Executable() || profile.LauncherSHA256() != profile.SHA256()) {
-			return fmt.Errorf("review run: direct provider launcher provenance drift")
 		}
 	}
 	return nil
 }
 
-func validPartialZCodeIdentity(profile DiscoveredProviderProfile) bool {
-	if !validOptionalIdentity(profile.Executable(), profile.SHA256()) || !validOptionalIdentity(profile.Launcher(), profile.LauncherSHA256()) ||
-		!validOptionalIdentity(profile.ZCodeProviderConfig(), profile.ZCodeProviderConfigSHA256()) {
-		return false
-	}
-	if profile.ZCodeProviderConfig() != "" && profile.Launcher() == "" {
-		return false
-	}
-	if profile.ApplicationMetadata() == "" {
-		return profile.ApplicationMetadataSHA256() == "" && profile.ApplicationVersion() == "" && profile.ApplicationVersionClassification() == ""
-	}
-	return canonicalAbsolute(profile.ApplicationMetadata()) && profile.ApplicationMetadataSHA256() != "" && validVersionText(profile.ApplicationVersion()) &&
-		profile.ApplicationVersionClassification() == ClassifyZCodeApplicationVersion(profile.ApplicationVersion())
-}
-
-func validOptionalIdentity(path, digest string) bool {
-	return path == "" && digest == "" || canonicalAbsolute(path) && digest != ""
-}
-
 func profileMissingOperationalIdentity(profile DiscoveredProviderProfile) bool {
 	return profile.Executable() == "" || profile.Launcher() == "" || profile.Family() == FamilyZCode &&
-		(profile.ZCodeProviderConfig() == "" || profile.ApplicationMetadata() == "" || profile.ApplicationVersion() == "")
+		!profile.zcodeCompanion.Valid()
 }
 
 func canonicalSelectedRoles(selected []domain.Role) []domain.Role {

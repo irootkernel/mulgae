@@ -41,6 +41,7 @@ func TestCurrentProbeDirectExecutionAuthorityBindsDirectRoleProofs(t *testing.T)
 	for name, mutate := range map[string]func(*currentProbeDirectExecutionRoleProof){
 		"family": func(proof *currentProbeDirectExecutionRoleProof) {
 			proof.Family = FamilyGrok
+			proof.ZCodePreparation = nil
 			proof.ZCodeProviderConfig = ""
 			proof.ZCodeProviderConfigSHA256 = ""
 			proof.ApplicationVersion = ""
@@ -63,7 +64,11 @@ func TestCurrentProbeDirectExecutionAuthorityBindsDirectRoleProofs(t *testing.T)
 		"provider config SHA": func(proof *currentProbeDirectExecutionRoleProof) {
 			proof.ZCodeProviderConfigSHA256 = "sha256:" + strings.Repeat("b", 64)
 		},
-		"application version": func(proof *currentProbeDirectExecutionRoleProof) { proof.ApplicationVersion = "3.13.0" },
+		"application version": func(proof *currentProbeDirectExecutionRoleProof) {
+			prepared := *proof.ZCodePreparation
+			prepared.AppVersion, proof.ApplicationVersion = "4.1.0", "4.1.0"
+			proof.ZCodePreparation = &prepared
+		},
 		"application metadata": func(proof *currentProbeDirectExecutionRoleProof) {
 			proof.ApplicationMetadata = "/Applications/Other.app/Contents/Info.plist"
 		},
@@ -122,6 +127,7 @@ func TestCurrentProbeDirectExecutionAuthorityBindsDirectRoleProofs(t *testing.T)
 	// Verify every Grok terminal runtime identity field is bound and required.
 	grokProof := proof
 	grokProof.Family = FamilyGrok
+	grokProof.ZCodePreparation = nil
 	grokProof.ProviderInstance = "grok_current"
 	grokProof.Executable = "/private/bin/grok"
 	grokProof.Launcher = "/private/bin/grok"
@@ -175,9 +181,11 @@ func currentProbeDirectExecutionTestProof() currentProbeDirectExecutionRoleProof
 	return currentProbeDirectExecutionRoleProof{
 		Family: FamilyZcode, ProviderInstance: "zcode_current", ProviderVersion: "1.2.3", ObservedVersion: "1.2.3",
 		Executable: "/private/bin/zcode", ExecutableSHA256: "sha256:executable", Launcher: "/private/bin/zcode", LauncherSHA256: "sha256:executable",
-		ZCodeProviderConfig: "/private/config/zcode-builtin.json", ZCodeProviderConfigSHA256: "sha256:" + strings.Repeat("a", 64),
-		ApplicationVersion: "3.12.3", ApplicationMetadata: "/Applications/ZCode.app/Contents/Info.plist", ApplicationMetadataSHA256: "sha256:" + strings.Repeat("b", 64),
-		ProfileID: "profile", ProfileGeneration: "generation", NamespaceGeneration: "namespace", Role: string(domain.RoleLogic),
+		TerminalRuntimeExecutable: "/private/bin/hc", TerminalRuntimeExecutableSHA256: "sha256:" + strings.Repeat("a", 64),
+		TerminalRuntimeVersion: "0.1.0", TerminalRuntimeGeneration: 1, TerminalRuntimePolicyIdentity: "sha256:" + strings.Repeat("b", 64),
+		ApplicationVersion: "4.0.0",
+		ZCodePreparation:   &ZCodeTerminalObservation{AppVersion: "4.0.0", CatalogRevision: 1, CatalogSHA256: strings.Repeat("a", 64), AccountIdentitySHA256: strings.Repeat("b", 64)},
+		ProfileID:          "profile", ProfileGeneration: "generation", NamespaceGeneration: "namespace", Role: string(domain.RoleLogic),
 		SnapshotManifestSHA256: "sha256:snapshot", SnapshotName: "snapshot", SnapshotPath: "/snapshot/path", SnapshotPolicyIdentity: "sha256:snapshot-policy",
 		SnapshotDevice: 1, SnapshotInode: 2, RootDevice: 3, RootInode: 4, ArgvSHA256: "sha256:argv", NativeReference: "@roadmap.md",
 		OutputSHA256: "sha256:output", EffectiveEnvironmentSHA256: "sha256:environment", Termination: string(ports.ProcessTerminationExited), HasExitCode: true, ExitCode: 0,

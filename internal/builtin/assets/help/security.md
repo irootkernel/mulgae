@@ -16,19 +16,23 @@ sockets. The Seatbelt guard denies source, Git and guide writes;
 credential-root reads, writes and links; control-plane root and socket access;
 and Unix sockets at protected roots.
 
-Grok runs inside an isolated Mulgae-owned `herdr-core` terminal pane with a
-trampoline-verified `PaneTTY` (blocking foreign `/dev/ttys*` and `TIOCSTI`),
-disposable `HOME` and `GROK_HOME` containing only a minimal `requirements.toml`
-and projected `0600` `auth.json` (never written back, while `~/.grok` remains
-protected in `CredentialRoots`). Workspace review, extraction and qualification
-are strictly shell-free; index and commit reviews enable `Bash` only under all
-five `B-1` controls (Seatbelt process/socket/file limits plus post-`ESRCH`
-same-UID sentinel survivor and `mtime`/`ctime` stability checks). Staged
-prompts live read-only (`0400`) under `<scratch>/input/` (protected in
-`ReadOnlyRoots`), and staged outputs are read strictly after `ESRCH` via
-`O_NOFOLLOW` single-file `Nlink == 1` validation and completion-nonce
-verification. Provider namespaces and scratch are private and are removed after
-verified process drain and terminal-session close.
+ZCode and Grok run in isolated Mulgae-owned `herdr-core` panes. The
+trampoline-verified `PaneTTY` blocks foreign `/dev/ttys*` and `TIOCSTI`.
+The ZCode companion prepares private auth and catalog files on the host.
+The pane cannot read `~/.zcode` or the native Keychains. Grok uses disposable
+`HOME` and `GROK_HOME` with a minimal `requirements.toml` and projected
+`0600` `auth.json`. The native `~/.grok` stays protected, and projected
+credentials are never written back.
+
+Workspace review, extraction and qualification are shell-free. Index and
+commit reviews enable `Bash` under the five `B-1` controls, including
+process, socket and file limits and post-`ESRCH` checks for same-UID
+sentinel survivors and `mtime`/`ctime` stability. Prompts live in `0400`
+files under `<scratch>/input/`, protected by `ReadOnlyRoots`.
+After verified `ESRCH`, Mulgae checks staged outputs
+using `O_NOFOLLOW` and `Nlink == 1` and verifies the completion nonce
+required by the invocation. Provider namespaces are private and drain
+with verified process and terminal-session cleanup.
 
 The outer guard denies writes outside the invocation's admitted private runtime
 directories as well as reads, links and Unix sockets at protected credential
@@ -52,13 +56,11 @@ filters, pagers, credential helpers and unknown settings are rejected. Both main
 and worktree configuration are checked again during execution; caller Git
 configuration is not rewritten. Provider Git transport protocols are disabled.
 
-Protocol providers return correlated assistant reports directly; terminal
-providers (Grok) write one invocation-scoped staged file inside the private
-writable namespace that Mulgae validates strictly after `ESRCH` and publishes
-under `result_transport: "stdout"`. Reports, prompt payloads and complete
-provider streams have no product byte ceiling. Optional repair and extraction
-use the same provider and bounded role path; protected failures always deny
-repair or publication.
+Mulgae publishes accepted staged report bytes under
+`result_transport: "stdout"`. Reports, prompt payloads and complete provider
+streams have no product byte ceiling. Optional repair and extraction use the
+same provider and bounded role path. Protected failures deny repair and
+publication.
 
 New runs retain source selection metadata, verified excerpts, selected
 PNG/JPEG/WebP evidence, findings and role reports, never a full-source archive.

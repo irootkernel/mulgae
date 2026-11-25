@@ -52,17 +52,13 @@ independently preserves the provider default.
 
 ZCode uses the standard `/Applications/ZCode.app` bundle by default. An app
 installed elsewhere accepts the machine-local `--zcode-app-bundle` override.
-Mulgae derives the app-owned Electron runtime, bundled app-server launcher, and
-built-in provider configuration from that one canonical absolute bundle path;
-it does not require an external Node.js executable.
-ZCode requires the app's current Z.AI Individual Coding Plan connection.
-`--zcode-model` accepts a provider-qualified shared-policy value such as
-`account:zai-individual-coding-plan/GLM-5.3`, and
-`--zcode-reasoning-effort` records an independently optional thought level.
-Omitting either value preserves app-server's default for that dimension. Mulgae
-reads ZCode's v2 app state and answers app-server's account-auth request
-without copying credentials into the disposable review home; it never reads
-`~/.zcode/cli/config.json`.
+Install `herdr-zcode` and `herdr-core`, then sign in to the app's Z.AI
+Individual Coding Plan. The companion checks the configured app bundle and
+prepares a private account projection for each invocation.
+`--zcode-model` accepts a provider-qualified value such as
+`account:zai-individual-coding-plan/GLM-5.3`.
+`--zcode-reasoning-effort` sets the effort independently. Omitted fields keep
+the current ZCode session setting.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.

@@ -601,6 +601,33 @@ func TestPaneExecChild(t *testing.T) {
 		fmt.Fprintln(os.Stdout, "PANE_COMPOSED_OK")
 		os.Exit(0)
 
+	case "managed-namespace":
+		if len(args) != 5 {
+			os.Exit(2)
+		}
+		own, err := os.ReadFile(args[2])
+		if err != nil || string(own) != "owned" {
+			fmt.Fprintln(os.Stderr, "own credential unreadable")
+			os.Exit(54)
+		}
+		if source, err := os.ReadFile(args[4]); err != nil || string(source) != "owned" {
+			fmt.Fprintln(os.Stderr, "unrelated source file unreadable")
+			os.Exit(57)
+		}
+		if file, err := os.Open(args[3]); !errors.Is(err, unix.EPERM) {
+			if file != nil {
+				_ = file.Close()
+			}
+			fmt.Fprintf(os.Stderr, "peer credential was not denied: %v\n", err)
+			os.Exit(55)
+		}
+		if err := os.Link(args[3], args[2]+".peer"); !errors.Is(err, unix.EPERM) {
+			fmt.Fprintf(os.Stderr, "peer credential link was not denied: %v\n", err)
+			os.Exit(56)
+		}
+		fmt.Fprintln(os.Stdout, "PANE_NAMESPACE_OK")
+		os.Exit(0)
+
 	case "deny-files-and-sockets":
 		// Args: comma-separated denied file paths, comma-separated denied socket paths
 		if len(args) != 4 {
@@ -1765,6 +1792,53 @@ func TestPaneExecSeatbeltMissingTolerantSymlinkFailsClosedOnUnsafeTargets(t *tes
 			t.Fatal("expandMissingTolerantPolicyPaths accepted path exceeding component bound")
 		}
 	})
+}
+
+func TestPaneExecManagedNamespaceIsolation(t *testing.T) {
+	f := newPaneTestFixture(t)
+	bin := canonicalTestExecutable(t)
+	managed := filepath.Join(f.base, "managed")
+	graph := filepath.Join(managed, "run1")
+	otherGraph := filepath.Join(managed, "run2")
+	zcode := filepath.Join(graph, "zcode", "auth", "iso-fixture", "auth.json")
+	grok := filepath.Join(graph, "grok", "home", ".grok", "auth.json")
+	other := filepath.Join(otherGraph, "grok", "home", ".grok", "auth.json")
+	source := filepath.Join(f.source, "mulgae-review-namespaces-42", "readable.txt")
+	for _, path := range []string{zcode, grok, other, source} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("owned"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, writable, own, peer string
+	}{
+		{"grok_to_zcode", filepath.Join(graph, "grok"), grok, zcode},
+		{"zcode_to_grok", filepath.Join(graph, "zcode"), zcode, grok},
+		{"zcode_to_other_run", filepath.Join(graph, "zcode"), zcode, other},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := f
+			fixture.writable = tc.writable
+			fixture.paneControlDir = filepath.Join(f.controlPlaneDir, tc.name)
+			for _, dir := range []string{filepath.Join(fixture.writable, "home"), filepath.Join(fixture.writable, "settings"), filepath.Join(fixture.writable, "tmp"), fixture.paneControlDir} {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			spec := fixture.buildLaunch(t, bin,
+				[]string{"-test.run=^TestPaneExecChild$", "--", "paneexec", "managed-namespace", tc.own, tc.peer, source}, nil,
+				func(b ports.LiveReadOnlyBoundary) (ports.LiveReadOnlyBoundary, error) {
+					return ports.NewLiveReadOnlyBoundaryWithManagedNamespaces(b, mustRoot(t, managed))
+				})
+			out, err, _ := runSpecOnSyntheticPTY(t, spec.Argv(), []string{"HC_TERMINAL_ID=namespace-fixture"}, nil)
+			if err != nil || !bytes.Contains(out, []byte("PANE_NAMESPACE_OK")) {
+				t.Fatalf("namespace boundary: %v, %s", err, out)
+			}
+		})
+	}
 }
 
 func TestPaneExecSeatbeltBashGateControls(t *testing.T) {

@@ -109,7 +109,7 @@ func vmSetupLossCaseWithResource(t *testing.T, parentCtx context.Context, root, 
 	caseCtx, cancel := context.WithTimeout(parentCtx, 60*time.Second)
 	t.Cleanup(cancel)
 
-	caseEnv := withHaepariHome(environment, controllerHome)
+	caseEnv := vmZCodeToolsEnvironment(withHaepariHome(environment, controllerHome), node, launcher)
 	controller := vmStartController(t, caseCtx, haepari, controllerHome, caseEnv)
 
 	resourceFile := filepath.Join(caseDir, "review-resource.json")

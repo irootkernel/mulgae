@@ -132,17 +132,14 @@ is adopted as planned work (`TASK-094` through `TASK-098`) following completed
 [ZCode herdr-core terminal runtime migration](todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
 and its structural rationale lives in the planned
 [ZCode herdr-core terminal transport ADR](architecture-decision-records/zcode-herdr-core-transport.md).
-The migration moves `FamilyZcode` onto Mulgae's shared `herdr-core` terminal
-runtime via `herdr-zcode`'s `core` runtime, retires Mulgae's direct ZCode
-Desktop protocol, Keychain, and bundle-internal coupling behind three generic
-`herdr-zcode` companion CLI capabilities (`--catalog-file`, `prepare-isolated`,
-`--check-desktop --json`), adds `GLM-5.4` / `max` new-project `init` defaults
-(`mulgae-command-result.v26`) while keeping omitted Config v5 fields on ZCode's
-current session model, preserves Config v5 and `doctor-result.v9`, and targets
-workspace shell-free unification (`DF-030`). Until `TASK-096` and `TASK-097`
-land, specifications, architecture, gating rules, deferred feedback, and
-embedded assets continue describing the currently implemented ZCode app-server
-runtime.
+The current candidate uses the shared `herdr-core` terminal runtime for ZCode
+through `herdr-zcode`. The companion owns Desktop access. ZCode workspace
+reviews run shell-free, Config v5 and `doctor-result.v9` remain current, and
+omitted model or effort settings inherit the corresponding session setting.
+
+`TASK-097` owns the new-project `GLM-5.4` and `max` defaults and
+`mulgae-command-result.v26`. `TASK-098` owns integrated native certification,
+the ADR promotion, and `DF-030` closeout.
 
 ## Native Haepari review coordination
 

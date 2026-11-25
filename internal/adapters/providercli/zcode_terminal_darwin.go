@@ -35,6 +35,23 @@ type zcodeTerminalProfile struct {
 	expected *ZCodeTerminalObservation
 }
 
+func zcodeProfileForDefinition(definition RuntimeDefinition) (zcodeTerminalProfile, error) {
+	observed := definition.zcodeCompanion
+	if !observed.Valid() || observed.DesktopBelowMinimum {
+		return zcodeTerminalProfile{}, zcodePreparationSecurityError("missing qualified companion identity")
+	}
+	pkg, err := herdr.ResolveZCodePackage(herdr.ResolveOptions{OverridePath: observed.Executable, HasOverride: true})
+	if err != nil || pkg.Launcher.SHA256 != observed.ExecutableSHA256 || pkg.PackageSHA256 != observed.PackageSHA256 {
+		return zcodeTerminalProfile{}, zcodePreparationSecurityError("companion identity drift")
+	}
+	if err := herdr.VerifyZCodeAppBundle(observed.BundleOverride); err != nil {
+		return zcodeTerminalProfile{}, zcodePreparationSecurityError("desktop bundle unavailable or unsafe")
+	}
+	return zcodeTerminalProfile{pkg: pkg, appBundle: observed.BundleOverride, desktop: herdr.ZCodeCompanionObservation{
+		Version: observed.Version, AppVersion: observed.AppVersion, AppBundle: observed.AppBundle, MinimumVersion: observed.MinimumAppVersion,
+	}}, nil
+}
+
 var (
 	_ terminalProviderProfile   = zcodeTerminalProfile{}
 	_ terminalHostPreparer      = zcodeTerminalProfile{}
@@ -184,6 +201,11 @@ func (profile zcodeTerminalProfile) PrepareHost(ctx context.Context, inv *termin
 		return terminalHostPreparation{}, zcodePreparationSecurityError("invalid host preparation authority")
 	}
 	lease := inv.Namespace
+	if lease.managedParent.Valid() {
+		if err := lease.verifyZCodeNativeHome(inv.NativeHome); err != nil {
+			return terminalHostPreparation{}, err
+		}
+	}
 	runtimeTemp, err := lease.liveRuntimeTempRoot()
 	if err != nil {
 		return terminalHostPreparation{}, zcodePreparationSecurityError("runtime directory identity drift")
@@ -226,6 +248,7 @@ func (profile zcodeTerminalProfile) PrepareHost(ctx context.Context, inv *termin
 	}
 	return terminalHostPreparation{
 		runtimeTemp: runtimeTemp,
+		zcode:       receipt.ZCodeTerminalObservation,
 		verifySpawn: func() error {
 			lease.terminalMu.Lock()
 			defer lease.terminalMu.Unlock()

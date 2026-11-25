@@ -94,6 +94,7 @@ type terminalHostPreparation struct {
 	readOnlyRoots []ports.AnchoredRoot
 	runtimeTemp   ports.AnchoredRoot
 	verifySpawn   func() error
+	zcode         ZCodeTerminalObservation
 }
 
 type terminalHostPreparer interface {
@@ -126,6 +127,7 @@ type terminalDriverRequest struct {
 	Timeout              time.Duration
 	RegistryGeneration   string
 	Namespace            *namespaceLease
+	ExpectedRuntime      ports.TerminalRuntimeIdentity
 
 	// Optional test hooks for deterministic B-1 Control 5 verification.
 	SurvivorCheck      func(sentinel string) error
@@ -137,6 +139,7 @@ type terminalDriverRequest struct {
 // completed cleanly, passed post-ESRCH staged output validation, and (when
 // required) passed completion-nonce verification.
 type terminalDriverResult struct {
+	ZCodePreparation     ZCodeTerminalObservation
 	Process              ports.ProcessObservation
 	RuntimeIdentity      ports.TerminalRuntimeIdentity
 	OutputBytes          []byte
@@ -492,6 +495,18 @@ func executeTerminalInvocation(
 	if err := ctx.Err(); err != nil {
 		return terminalDriverResult{}, err
 	}
+	if req.ExpectedRuntime.Valid() {
+		actual, err := runner.RuntimeIdentity(ctx)
+		if err != nil || actual != req.ExpectedRuntime {
+			if ctx.Err() != nil {
+				return terminalDriverResult{}, ctx.Err()
+			}
+			return terminalDriverResult{}, providerRuntimeFailure(
+				domain.DiagnosticCauseWorkspaceRevalidationFailed,
+				fmt.Errorf("terminal provider: qualified runtime changed"),
+			)
+		}
+	}
 	if !req.Packet.Valid() || !validCanonicalAbsolute(req.NamespaceRoot) ||
 		!req.NeutralCWD.Valid() || !req.NativeHome.Valid() || !req.SourceRoot.Valid() ||
 		launchDir == nil || launchDir.Fd() == ^uintptr(0) {
@@ -610,6 +625,12 @@ func executeTerminalInvocation(
 	}
 	if err != nil {
 		return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, err)
+	}
+	if req.Namespace != nil && req.Namespace.managedParent.Valid() {
+		boundary, err = ports.NewLiveReadOnlyBoundaryWithManagedNamespaces(boundary, req.Namespace.managedParent)
+		if err != nil {
+			return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, err)
+		}
 	}
 	if len(req.ControlPlaneRoots) > 0 || len(req.ControlPlaneLiterals) > 0 {
 		boundary, err = ports.NewLiveReadOnlyBoundaryWithControlPlane(boundary, req.ControlPlaneRoots, req.ControlPlaneLiterals)
@@ -739,8 +760,12 @@ func executeTerminalInvocation(
 		}, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, fmt.Errorf("terminal runner returned invalid observation"))
 	}
 
+	if req.ExpectedRuntime.Valid() && termObs.RuntimeIdentity() != req.ExpectedRuntime {
+		return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("terminal provider: runtime changed during execution"))
+	}
 	procObs := termObs.ProcessObservation()
 	baseResult := terminalDriverResult{
+		ZCodePreparation:     preparation.zcode,
 		Process:              procObs,
 		RuntimeIdentity:      termObs.RuntimeIdentity(),
 		EffectiveArgv:        argv,

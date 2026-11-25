@@ -63,11 +63,18 @@ func (inspector testInspector) ObserveReadableFileIdentity(_ context.Context, na
 	}
 	return ports.NewFileIdentityObservation(name, true, name, "")
 }
-func (inspector testInspector) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	if inspector.absent || !filepath.IsAbs(name) {
-		return ports.ApplicationMetadataObservation{}, ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "application metadata unavailable")
+func (inspector testInspector) ObserveZCodeCompanion(_ context.Context, bundle string, _ ...string) (ports.ZCodeCompanionObservation, error) {
+	if inspector.absent {
+		return ports.ZCodeCompanionObservation{}, nil
 	}
-	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("b", 64), "3.12.3")
+	override := bundle
+	if bundle == "" {
+		bundle = reviewrun.ZCodeAppBundle
+	}
+	return ports.ZCodeCompanionObservation{
+		Executable: "/private/bin/herdr-zcode", ExecutableSHA256: "sha256:" + strings.Repeat("a", 64), PackageSHA256: strings.Repeat("b", 64),
+		Version: "0.2.0", AppVersion: "4.0.0", AppBundle: bundle, BundleOverride: override, MinimumAppVersion: "3.18.2",
+	}, nil
 }
 
 func (testInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
@@ -78,14 +85,14 @@ func (testInspector) ObservePermission(context.Context, ports.AnchoredRoot, port
 }
 
 type scopedDiscoveryInspector struct {
-	calls                   []string
-	readableCalls           []string
-	legacyCalls             []string
-	observations            map[string]ports.ExecutableObservation
-	fileObservations        map[string]ports.FileIdentityObservation
-	applicationObservations map[string]ports.ApplicationMetadataObservation
-	errors                  map[string]error
-	kimiHomeErr             error
+	desktopVersion   string
+	calls            []string
+	readableCalls    []string
+	legacyCalls      []string
+	observations     map[string]ports.ExecutableObservation
+	fileObservations map[string]ports.FileIdentityObservation
+	errors           map[string]error
+	kimiHomeErr      error
 }
 
 func (inspector *scopedDiscoveryInspector) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
@@ -115,14 +122,17 @@ func (inspector *scopedDiscoveryInspector) ObserveReadableFileIdentity(_ context
 	}
 	return ports.NewFileIdentityObservation(name, false, "", "")
 }
-func (inspector *scopedDiscoveryInspector) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	if err := inspector.errors[name]; err != nil {
-		return ports.ApplicationMetadataObservation{}, err
+func (inspector *scopedDiscoveryInspector) ObserveZCodeCompanion(ctx context.Context, bundle string, excluded ...string) (ports.ZCodeCompanionObservation, error) {
+	inspector.calls = append(inspector.calls, "herdr-zcode:"+bundle)
+	if err := inspector.errors[bundle]; err != nil {
+		return ports.ZCodeCompanionObservation{}, err
 	}
-	if observation, ok := inspector.applicationObservations[name]; ok {
-		return observation, nil
+	observed, err := testInspector{}.ObserveZCodeCompanion(ctx, bundle, excluded...)
+	if inspector.desktopVersion != "" {
+		observed.AppVersion = inspector.desktopVersion
+		observed.DesktopBelowMinimum = true
 	}
-	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("b", 64), "3.12.3")
+	return observed, err
 }
 
 func (*scopedDiscoveryInspector) ObserveNativeHomeIdentity(context.Context, string) (ports.NativeHomeLaunchAuthority, error) {
@@ -686,23 +696,10 @@ func TestInitializeProjectZCodeAppBundleDiscovery(t *testing.T) {
 		{name: "override bundle", overrides: Overrides{ZCodeAppBundle: overrideBundle}, bundle: overrideBundle, wantBundleSource: "override"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			executable := filepath.Join(test.bundle, filepath.FromSlash(reviewrun.ZCodeExecutableRelativePath))
-			launcher := filepath.Join(test.bundle, filepath.FromSlash(reviewrun.ZCodeLauncherRelativePath))
-			providerConfig := filepath.Join(test.bundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
 			rootPath := t.TempDir()
 			_ = os.Chmod(rootPath, 0o700)
 			root, _ := ports.NewAnchoredRoot(rootPath)
-			inspector := &scopedDiscoveryInspector{
-				observations: map[string]ports.ExecutableObservation{
-					executable: availableDiscoveryObservation(t, executable, executable),
-				},
-				fileObservations: map[string]ports.FileIdentityObservation{
-					executable:     availableFileObservation(t, executable, executable),
-					launcher:       availableFileObservation(t, launcher, launcher),
-					providerConfig: availableFileObservation(t, providerConfig, providerConfig),
-				},
-				errors: map[string]error{},
-			}
+			inspector := &scopedDiscoveryInspector{}
 			service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 			if err != nil {
 				t.Fatal(err)
@@ -715,7 +712,7 @@ func TestInitializeProjectZCodeAppBundleDiscovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			row := result.Discovery[0]
-			if !result.Committed || !reflect.DeepEqual(inspector.calls, []string{executable}) || !reflect.DeepEqual(inspector.readableCalls, []string{executable, launcher, providerConfig}) || row.AppBundleSource != test.wantBundleSource {
+			if !result.Committed || !reflect.DeepEqual(inspector.calls, []string{"herdr-zcode:" + test.overrides.ZCodeAppBundle}) || len(inspector.readableCalls) != 0 || row.AppBundleSource != test.wantBundleSource {
 				t.Fatalf("result=%#v calls=%v readable=%v", result, inspector.calls, inspector.readableCalls)
 			}
 		})
@@ -723,22 +720,7 @@ func TestInitializeProjectZCodeAppBundleDiscovery(t *testing.T) {
 }
 
 func TestInitializeProjectDoesNotAdmitIneligibleZCodeApplication(t *testing.T) {
-	bundle := reviewrun.ZCodeAppBundle
-	executable := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeExecutableRelativePath))
-	launcher := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeLauncherRelativePath))
-	providerConfig := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
-	metadata := filepath.Join(bundle, filepath.FromSlash(reviewrun.ZCodeApplicationMetadataRelativePath))
-	belowMinimum, err := ports.NewApplicationMetadataObservation(metadata, "sha256:"+strings.Repeat("b", 64), "3.12.2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	inspector := &scopedDiscoveryInspector{
-		observations: map[string]ports.ExecutableObservation{executable: availableDiscoveryObservation(t, executable, executable)},
-		fileObservations: map[string]ports.FileIdentityObservation{
-			executable: availableFileObservation(t, executable, executable), launcher: availableFileObservation(t, launcher, launcher), providerConfig: availableFileObservation(t, providerConfig, providerConfig),
-		},
-		applicationObservations: map[string]ports.ApplicationMetadataObservation{metadata: belowMinimum}, errors: map[string]error{},
-	}
+	inspector := &scopedDiscoveryInspector{desktopVersion: "3.18.1"}
 	service, err := NewService(&testInstaller{}, inspector, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
 	if err != nil {
 		t.Fatal(err)

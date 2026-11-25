@@ -15,12 +15,10 @@ latest release verified for Mulgae's isolated `herdr-core` terminal runtime
 contract; later versions remain eligible as `newer_than_verified` and require
 current qualification.
 
-ZCode app 3.12.3 is the minimum and currently verified app release for the app-owned
-Electron plus bundled `zcode.cjs app-server --stdio` route. That bundle's
-launcher reports protocol version 0.16.5; provider qualification observes that
-launcher value, so its minimum and verified-latest guidance remain 0.16.5.
-App releases above 3.12.3 and launcher protocol releases above 0.16.5 remain
-eligible as `newer_than_verified`; the two version axes are never substituted.
+ZCode uses `herdr-zcode` 0.2.0 or newer with `herdr-core` and Desktop
+3.18.2 or newer. The verified companion and Desktop releases are 0.2.0 and
+4.0.0. Later versions remain eligible as `newer_than_verified` and require
+current qualification.
 
 See [development toolchains](toolchains.md) for explicit installation, executable
 selection, command usage and version upgrades. Run `make toolchain-check` before
@@ -45,9 +43,7 @@ make test
 It runs `make test-offline` once (generators and static checks, serialized
 race-instrumented unit tests, and serialized race-instrumented integration
 tests), followed by `make test-release`, one exact-binary two-role live
-review, the ZCode synthetic Keychain cipher fixtures, and independent live
-capability certification for ZCode. The
-live review routes `logic` and `security` to ZCode concurrently, accepts
+review and independent live capability certification for ZCode. The live review routes `logic` and `security` to ZCode concurrently, accepts
 one Markdown report from each role without repair or structured extraction,
 and requires Mulgae to publish one complete reports-only review. Each role must
 reproduce a fresh marker stored only in its original source file, never the
@@ -556,15 +552,13 @@ the inherited `TMPDIR` and a custom symlinked temporary parent, then run the
 complete gate. A pass using only a short canonical `TMPDIR` does not verify the
 default environment.
 
-For TASK-064's provider-mechanics extraction, keep the class controls
-`TestProtocolStringResponseMatches` and
-`TestProtocolDiagnosticIdentifierGrammar` alongside the existing family tests.
-Diagnostic grammar checks include byte and Unicode boundaries; command and path
-checks preserve family normalization, original errors and admission counts.
-Native admission must read no file bodies, while evidence reads retain content
-validation. Preserve ZCode's post-turn stream-end acceptance. Run focused checks
-and completion gates serially in the native default environment; scripted and
-compile-only checks do not certify deferred non-ZCode live behavior.
+Keep `TestProtocolDiagnosticIdentifierGrammar` alongside family tests.
+Diagnostic grammar checks cover byte and Unicode boundaries. Command and
+path checks preserve family normalization, original errors and admission
+counts. Native admission reads no source file bodies. Evidence reads still
+validate content. Run focused checks and completion gates serially with the
+pinned native toolchain. Scripted and compile-only checks do not certify live
+provider behavior.
 
 EPIC-013 proves its reuse rules with deterministic counts and call traces,
 never timing. Count digest, defensive-copy, construction and whole-support
@@ -590,7 +584,7 @@ EPIC-009's internal neutral execution fixtures live in
 `internal/adapters/providercli` under the `liveprovider` build tag. The focused
 groups `TestLiveNeutralReviewReports`, `TestLiveNeutralExtractionReports`,
 `TestLiveNeutralReviewConcurrentCancellation`,
-`TestLiveNeutralCredentialBoundary`, `TestLiveZCodeNeutralKernelProtection`
+`TestLiveNeutralCredentialBoundary`,
 and `TestLiveGrokNeutralKernelProtection` exercise actual native providers in
 disposable source and reviewer-home fixtures. Select an exact
 group with an anchored `-run` expression and an explicit package. Never use the
@@ -600,15 +594,14 @@ Run the complete focused set explicitly:
 
 ```bash
 ./dev go test -count=1 -tags=liveprovider ./internal/adapters/providercli \
-  -run '^TestLive(Neutral(ReviewReports|ExtractionReports|ReviewConcurrentCancellation|CredentialBoundary)|(ZCode|Grok)NeutralKernelProtection)$' -v
+  -run '^TestLive(Neutral(ReviewReports|ExtractionReports|ReviewConcurrentCancellation|CredentialBoundary)|GrokNeutralKernelProtection)$' -v
 ```
 
-Credential fixtures contain generated test text. ZCode requires actual Bash
-failure receipts. Its separate kernel probe runs the actual ZCode executable
-in Electron-as-Node mode under the exact boundary, environment and neutral
-directory from production admission. Native child-process receipts verify the
-five write denials and positive source/Git/guide reads and owned scratch writes;
-the normal plan-mode app-server report remains a separate conversation.
+Credential fixtures contain generated test text. The ZCode spike records
+workspace shell-free review and the shared index/commit Bash boundary. The
+offline Darwin kernel test checks managed namespace separation across Grok and
+ZCode panes. The integrated release gate exercises the production transport.
+
 Grok runs through its isolated `herdr-core` terminal runtime under the outer
 Seatbelt `PaneTTY` guard: workspace review, extraction, and qualification run
 shell-free while stage and commit reviews enable `Bash` only under all five
@@ -840,7 +833,7 @@ commands alongside them.
 ./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorProvidersNativeHomeReplacementRegression|TestDoctorProvidersNativeHomeCancellationProjection)$'
 ./dev go test -count=1 -v ./internal/app/doctor -run '^(TestLocalDoctorAdmissionSequence|TestLocalDoctorReadinessCompatibility|TestLocalDoctorRejectsNativeHomeReplacement|TestLocalDoctorCancellationAndEffects)$'
 ./dev go test -count=1 -v ./internal/entrypoint/mulgae -run '^(TestDoctorV7Characterization|TestDoctorProvidersConformanceCompatibility|TestApplicationDoctorReportsStableBinaryAvailabilityReasons|TestApplicationDoctorClassifiesProviderCLIVersionOutcomes|TestApplicationDoctorNeverInvokesLiveHeartbeatService|TestApplicationProvidersKeepsOfflineReadinessWhenStaticEvidenceRejectsEveryProfile|TestApplicationNativeHomeCancellationUsesExitNine|TestApplicationNativeHomeCancellationHumanOutput)$'
-./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestProviderVersionObserverAcceptsReadableNonExecutableZCodeLauncher|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes|TestProviderVersionObserverAdmitsAgyOfflineVersion|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestSpawnVerifierRejectsZCodeProviderConfigDrift|TestApplicationMetadataObservationBindsShortVersionAndDigest)$'
+./dev go test -count=1 -v ./internal/adapters/environment -run '^(TestProviderVersionObserverFailureDriftPrecedence|TestGenericVersionObserverRejectsZCodeLaunch|TestProviderVersionObserverClassifiesLocalVersionCommandOutcomes|TestProviderVersionObserverRejectsRetiredAgyAndCodexFamilies|TestProviderVersionObserverRejectsIdentityMismatchBeforeExecution|TestSpawnVerifierRejectsZCodeCompanionExecutableDrift|TestReadableFileIdentityIsDistinctFromExecutableIdentity)$'
 ./dev go test -count=1 -v ./internal/app/reviewrun -run '^TestClassifyVersion$'
 ./dev go test -count=1 -v ./internal/architecture -run '^TestProductionDependencyDirection$'
 ```

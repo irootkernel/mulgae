@@ -18,7 +18,14 @@ func (NativeProbeInvocation) VersionArgv(definition RuntimeDefinition) ([]string
 	if err != nil {
 		return nil, err
 	}
-	return append(baseArgv, "--version"), nil
+	argv := append(baseArgv, "--version")
+	if definition.Family() == FamilyZcode {
+		argv = append(argv, "--json")
+		if bundle := definition.zcodeCompanion.BundleOverride; bundle != "" {
+			argv = append(argv, "--app-bundle", bundle)
+		}
+	}
+	return argv, nil
 }
 func (NativeProbeInvocation) CapabilityArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]string, error) {
 	if err := safeProbeDefinition(definition); err != nil {
@@ -58,10 +65,8 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	}
 	switch definition.Family() {
 	case FamilyZcode:
-		// Capability stays tool-denied so qualification remains bounded. The
-		// conversation runs in plan mode with every tool denied; review
-		// conversations use zcodeReviewProtocolDenylist instead.
-		return appendZcodeProtocolServerArgv(baseArgv), nil
+		// The real argv is assembled after descriptor-bound host preparation.
+		return baseArgv, nil
 	case FamilyGrok:
 		return grokTerminalBaseArgv(definition, terminalPurposeQualification, "", false)
 	default:
@@ -69,55 +74,11 @@ func nativeProbeArgv(definition RuntimeDefinition, fixture ProbeFixture) ([]stri
 	}
 }
 
-// zcodeReviewProtocolDenylist is the adapter-owned ZCode tool denylist for
-// workspace-first reviews on the app-server protocol session.
-//
-// Write is deliberately absent: it is the single authority a staged_file review
-// needs to place its role report at the Mulgae-chosen staging path. The
-// workspace itself stays read-only regardless, because Bash, Edit and
-// NotebookEdit remain denied, the snapshot the process is launched in is
-// immutable, and post-execution drift detection revalidates it. Every byte the
-// grant produces is bounded by the staged-output validation that reads it back.
-// The plan tools stay denied because the protocol's plan flow persists
-// plan-<session>.md files inside the workspace, which the sealed snapshot's
-// drift detection must continue to reject.
-var zcodeReviewProtocolDenylist = []string{"Bash", "Edit", "NotebookEdit", "WebSearch", "WebFetch", "EnterPlanMode", "ExitPlanMode"}
-
-// zcodeCapabilityProtocolDenylist keeps qualification prompt-bound and latency
-// bounded. Workspace-selective read is exercised on review invocations.
-var zcodeCapabilityProtocolDenylist = []string{"*"}
-
-// Live reviews read original sources through Bash under the mandatory outer
-// guard. Reports come from assistant messages, so no source-writing tool is
-// needed; plan persistence and web tools remain denied.
-var zcodeLiveReviewProtocolDenylist = []string{"Write", "Edit", "ApplyPatch", "NotebookEdit", "WebSearch", "WebFetch", "EnterPlanMode", "ExitPlanMode"}
-
-const zcodeProtocolServerArgument = "app-server"
-
-// appendZcodeProtocolServerArgv builds the ZCode review and qualification
-// argv. Every ZCode packet travels inside the protocol conversation, so the
-// argv never carries the prompt or tool policy.
-func appendZcodeProtocolServerArgv(argv []string) []string {
-	result := append([]string(nil), argv...)
-	return append(result, zcodeProtocolServerArgument, "--stdio")
-}
-
 func canonicalProbeBaseArgv(definition RuntimeDefinition) ([]string, error) {
 	baseArgv := definition.BaseArgv()
 	executable := definition.Executable()
-	switch definition.Family() {
-	case FamilyGrok:
-		if !reflect.DeepEqual(baseArgv, []string{executable}) {
-			return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
-		}
-	case FamilyZcode:
-		launcher := definition.Launcher()
-		if !reflect.DeepEqual(baseArgv, []string{executable}) &&
-			(launcher == "" || !reflect.DeepEqual(baseArgv, []string{executable, launcher})) {
-			return nil, fmt.Errorf("native probe invocation: unsupported zcode base argv")
-		}
-	default:
-		return nil, fmt.Errorf("native probe invocation: unsupported family")
+	if !reflect.DeepEqual(baseArgv, []string{executable}) {
+		return nil, fmt.Errorf("native probe invocation: unsupported %s base argv", definition.Family())
 	}
 	return baseArgv, nil
 }

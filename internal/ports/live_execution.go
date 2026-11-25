@@ -14,6 +14,7 @@ const defaultBashGateMDNSResponderSocket = "/private/var/run/mDNSResponder"
 // LiveReadOnlyBoundary carries trusted directory roots for the platform launch
 // guard. Filesystem admission remains the process adapter's responsibility.
 type LiveReadOnlyBoundary struct {
+	managedNamespaces          AnchoredRoot
 	readOnly                   []AnchoredRoot
 	credentials                []AnchoredRoot
 	controlPlaneRoots          []AnchoredRoot
@@ -27,6 +28,20 @@ type LiveReadOnlyBoundary struct {
 	bashGate                   bool
 	bashGateAllowedUnixSockets []AnchoredRoot
 	present                    bool
+}
+
+// NewLiveReadOnlyBoundaryWithManagedNamespaces protects all managed provider
+// namespaces except the writable namespace owned by this pane.
+func NewLiveReadOnlyBoundaryWithManagedNamespaces(boundary LiveReadOnlyBoundary, parent AnchoredRoot) (LiveReadOnlyBoundary, error) {
+	boundary.managedNamespaces = parent
+	if !parent.Valid() || !boundary.Valid() {
+		return LiveReadOnlyBoundary{}, fmt.Errorf("live read-only boundary: invalid managed namespace parent")
+	}
+	return boundary, nil
+}
+
+func (boundary LiveReadOnlyBoundary) ManagedNamespaceRoot() (AnchoredRoot, bool) {
+	return boundary.managedNamespaces, boundary.managedNamespaces.Valid()
 }
 
 // NewLiveReadOnlyBoundaryWithRuntimeTemp adds the existing trusted native
@@ -311,6 +326,18 @@ func (boundary LiveReadOnlyBoundary) Valid() bool {
 	}
 	if boundary.runtimeTemp.Valid() && !validLivePolicyRoot(boundary.runtimeTemp) {
 		return false
+	}
+	if parent := boundary.managedNamespaces; parent.Valid() {
+		if !validLivePolicyRoot(parent) || !strings.HasPrefix(boundary.writable.String(), parent.String()+"/") {
+			return false
+		}
+		for _, root := range boundary.readOnly {
+			readOnly := root.String()
+			if readOnly == parent.String() || strings.HasPrefix(parent.String(), readOnly+"/") ||
+				strings.HasPrefix(readOnly, parent.String()+"/") && !strings.HasPrefix(readOnly, boundary.writable.String()+"/") {
+				return false
+			}
+		}
 	}
 	if !boundary.paneTTY {
 		if len(boundary.terminalSecretRoots) != 0 || len(boundary.terminalDeniedLiterals) != 0 ||

@@ -212,13 +212,7 @@ func authorityCandidateForRoles(t *testing.T, family Family, instance string, ro
 		t.Fatal(err)
 	}
 	return QualifiedRunCandidate{
-		Profile: DiscoveredProviderProfile{
-			family: family, executable: definition.Executable(), launcher: definition.Launcher(),
-			argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
-			providerConfig: definition.ZCodeProviderConfig(), providerConfigSHA256: definition.ZCodeProviderConfigSHA256(),
-			applicationVersion: definition.ApplicationVersion(), applicationVersionClassification: ClassifyZCodeApplicationVersion(definition.ApplicationVersion()), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
-			reason: "unqualified_discovery",
-		},
+		Profile:                 testDiscoveredProfile(definition),
 		Definition:              definition,
 		ExecutionTargetIdentity: "manifest-1",
 		SupportedRoles:          append([]domain.Role(nil), roles...),

@@ -79,6 +79,8 @@ func TestFamilyRuntimeProfileKeyRejectsCapabilityRelevantMutations(t *testing.T)
 	}
 
 	for name, mutate := range map[string]func(*testRuntimeMutation){
+		"companion-package-digest":    func(d *testRuntimeMutation) { d.companion.PackageSHA256 = strings.Repeat("d", 64) },
+		"companion-bundle":            func(d *testRuntimeMutation) { d.companion.AppBundle = "/private/Other.app" },
 		"transport-index":             func(d *testRuntimeMutation) { d.transportArgvIndex++ },
 		"base-argv":                   func(d *testRuntimeMutation) { d.baseArgv = append(append([]string(nil), d.baseArgv...), "--other") },
 		"transport-ref":               func(d *testRuntimeMutation) { d.transportReference = "@other.md" },
@@ -365,13 +367,7 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 		t.Fatal(err)
 	}
 	return QualifiedRunCandidate{
-		Profile: DiscoveredProviderProfile{
-			family: family, executable: definition.Executable(), launcher: definition.Launcher(),
-			argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
-			providerConfig: definition.ZCodeProviderConfig(), providerConfigSHA256: definition.ZCodeProviderConfigSHA256(),
-			applicationVersion: definition.ApplicationVersion(), applicationVersionClassification: ClassifyZCodeApplicationVersion(definition.ApplicationVersion()), applicationMetadata: definition.ApplicationMetadata(), applicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
-			reason: "unqualified_discovery",
-		},
+		Profile:                 testDiscoveredProfile(definition),
 		Definition:              definition,
 		ExecutionTargetIdentity: "manifest-1",
 		SupportedRoles:          []domain.Role{role},
@@ -381,6 +377,7 @@ func authorityCandidateForFamilyRole(t *testing.T, family Family, role domain.Ro
 }
 
 type testRuntimeMutation struct {
+	companion                   ports.ZCodeCompanionObservation
 	family                      string
 	instance                    string
 	version                     string
@@ -409,19 +406,20 @@ type testRuntimeMutation struct {
 	lifecycle                   ports.BoundedPostOutputLifecycle
 }
 
-func (d testRuntimeMutation) Family() string                    { return d.family }
-func (d testRuntimeMutation) Instance() string                  { return d.instance }
-func (d testRuntimeMutation) Version() string                   { return d.version }
-func (d testRuntimeMutation) Executable() string                { return d.executable }
-func (d testRuntimeMutation) ExecutableSHA256() string          { return d.executableSHA256 }
-func (d testRuntimeMutation) Launcher() string                  { return d.launcher }
-func (d testRuntimeMutation) LauncherSHA256() string            { return d.launcherSHA256 }
-func (d testRuntimeMutation) ZCodeProviderConfig() string       { return d.zcodeProviderConfig }
-func (d testRuntimeMutation) ZCodeProviderConfigSHA256() string { return d.zcodeProviderConfigSHA256 }
-func (d testRuntimeMutation) ApplicationVersion() string        { return d.applicationVersion }
-func (d testRuntimeMutation) ApplicationMetadata() string       { return d.applicationMetadata }
-func (d testRuntimeMutation) ApplicationMetadataSHA256() string { return d.applicationMetadataSHA256 }
-func (d testRuntimeMutation) ProfileGeneration() string         { return d.profileGeneration }
+func (d testRuntimeMutation) Family() string                                  { return d.family }
+func (d testRuntimeMutation) Instance() string                                { return d.instance }
+func (d testRuntimeMutation) Version() string                                 { return d.version }
+func (d testRuntimeMutation) Executable() string                              { return d.executable }
+func (d testRuntimeMutation) ExecutableSHA256() string                        { return d.executableSHA256 }
+func (d testRuntimeMutation) Launcher() string                                { return d.launcher }
+func (d testRuntimeMutation) LauncherSHA256() string                          { return d.launcherSHA256 }
+func (d testRuntimeMutation) ZCodeProviderConfig() string                     { return d.zcodeProviderConfig }
+func (d testRuntimeMutation) ZCodeProviderConfigSHA256() string               { return d.zcodeProviderConfigSHA256 }
+func (d testRuntimeMutation) ApplicationVersion() string                      { return d.applicationVersion }
+func (d testRuntimeMutation) ApplicationMetadata() string                     { return d.applicationMetadata }
+func (d testRuntimeMutation) ApplicationMetadataSHA256() string               { return d.applicationMetadataSHA256 }
+func (d testRuntimeMutation) ZCodeCompanion() ports.ZCodeCompanionObservation { return d.companion }
+func (d testRuntimeMutation) ProfileGeneration() string                       { return d.profileGeneration }
 func (d testRuntimeMutation) RuntimeSafetyPolicyIdentity() string {
 	return d.runtimeSafetyPolicyIdentity
 }
@@ -454,7 +452,8 @@ func mutateFamilyCandidateDefinition(t *testing.T, candidate QualifiedRunCandida
 	definition := candidate.Definition
 	lifecycle, hasLifecycle := definition.PostOutputLifecycle()
 	mutated := testRuntimeMutation{
-		family: definition.Family(), instance: definition.Instance(), version: definition.Version(),
+		companion: candidate.Profile.ZCodeCompanion(),
+		family:    definition.Family(), instance: definition.Instance(), version: definition.Version(),
 		executable: definition.Executable(), executableSHA256: definition.ExecutableSHA256(),
 		launcher: definition.Launcher(), launcherSHA256: definition.LauncherSHA256(),
 		zcodeProviderConfig: definition.ZCodeProviderConfig(), zcodeProviderConfigSHA256: definition.ZCodeProviderConfigSHA256(),
@@ -535,8 +534,16 @@ func syntheticFamilyQualificationResult(t *testing.T, request CurrentQualificati
 	for _, role := range request.RequestedRoles {
 		roleReceipts = append(roleReceipts, CurrentRoleReceipt{Role: role, State: ReceiptPass, Identity: identity})
 	}
+	argv := append(request.Profile.Argv(), "--version")
+	if companion := request.Profile.ZCodeCompanion(); companion.Valid() {
+		version = companion.Version
+		argv = append(argv, "--json")
+		if companion.BundleOverride != "" {
+			argv = append(argv, "--app-bundle", companion.BundleOverride)
+		}
+	}
 	return CurrentQualificationResult{
-		VersionArgv: append(append([]string(nil), request.Profile.Argv()...), "--version"), Version: version,
+		VersionArgv: argv, Version: version,
 		Receipts: receipts, SupportedRoles: append([]domain.Role(nil), request.RequestedRoles...),
 		RoleReceipts: roleReceipts, BaseRole: request.BaseRole,
 		Observations:              []ProviderQualificationObservation{qualifiedQualificationObservation(request.Definition.Instance())},
@@ -752,6 +759,12 @@ func TestDerivedZCodeSiblingExecutionConfigurationFailureBlocksPublication(t *te
 					qualifierRegistry: guardRegistry(t, "zcode-security", security.Definition.RuntimeSafetyPolicyIdentity()),
 					observe: func(_ context.Context, invocation ports.ProviderInvocation) (ports.ProviderExecutionObservation, error) {
 						observedSecurity.Add(1)
+						if diagnosticCode == "zcode_account_configuration" {
+							return ports.NewPartialFailedProviderExecutionObservation(
+								ports.ProviderExecutionStatusConfigurationViolation, invocation, nil, nil,
+								diagnosticCode, domain.DiagnosticCauseObservationInvalid, "",
+							)
+						}
 						receipt, err := ports.NewStdinWriteReceipt(int64(invocation.InputIdentity().ByteLength()), int64(invocation.InputIdentity().ByteLength()), invocation.CompleteStdinSHA256(), true)
 						if err != nil {
 							return ports.ProviderExecutionObservation{}, err

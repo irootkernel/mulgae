@@ -76,6 +76,11 @@ func familyRuntimeProfileKeyFor(definition ports.ProviderRuntimeDefinition) fami
 		strconv.FormatInt(lifecycleStability, 10),
 		strconv.FormatInt(lifecycleTermination, 10),
 	}
+	if native, ok := definition.(ports.ProviderZCodeCompanionDefinition); ok && definition.Family() == string(FamilyZCode) {
+		companion := native.ZCodeCompanion()
+		parts = append(parts, companion.Executable, companion.ExecutableSHA256, companion.PackageSHA256,
+			companion.Version, companion.AppVersion, companion.AppBundle, companion.BundleOverride, companion.MinimumAppVersion, strconv.FormatBool(companion.DesktopBelowMinimum))
+	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return familyRuntimeProfileKey("sha256:" + hex.EncodeToString(sum[:]))
 }

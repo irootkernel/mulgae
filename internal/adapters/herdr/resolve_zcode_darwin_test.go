@@ -186,13 +186,16 @@ func TestResolveZCodePackageExplicitEnvironment(t *testing.T) {
 func TestObserveZCodeCompanionRejectsInvalidOutput(t *testing.T) {
 	const version = `{"name":"herdr-zcode","version":"0.2.0","runtimes":["tui","core"],"osc7501":true,"capabilities":["core","osc7501","catalogFile","prepareIsolated","checkDesktop"]}`
 	const desktop = `{"compatible":true,"appVersion":"4.0.0","minZcodeAppVersion":"3.18.2","appBundle":"/Applications/Test.app"}`
-	for _, tc := range []struct{ name, version, desktop string }{
-		{"missing capability", strings.Replace(version, `,"checkDesktop"`, "", 1), desktop},
-		{"incompatible desktop", version, strings.Replace(desktop, "true", "false", 1)},
-		{"mismatched bundle", version, strings.Replace(desktop, "Test.app", "Other.app", 1)},
-		{"noncanonical bundle", version, strings.Replace(desktop, "Test.app", "./Test.app", 1)},
-		{"malformed json", "{", desktop},
-		{"oversized json", version + strings.Repeat(" ", 128*1024), desktop},
+	for _, tc := range []struct {
+		name, version, desktop string
+		versionRetained        bool
+	}{
+		{"missing capability", strings.Replace(version, `,"checkDesktop"`, "", 1), desktop, false},
+		{"incompatible desktop", version, strings.Replace(desktop, "true", "false", 1), true},
+		{"mismatched bundle", version, strings.Replace(desktop, "Test.app", "Other.app", 1), true},
+		{"noncanonical bundle", version, strings.Replace(desktop, "Test.app", "./Test.app", 1), true},
+		{"malformed json", "{", desktop, false},
+		{"oversized json", version + strings.Repeat(" ", 128*1024), desktop, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in --version) printf '%%s\\n' '%s';; --check-desktop) printf '%%s\\n' '%s';; esac\n", tc.version, tc.desktop)
@@ -203,13 +206,38 @@ func TestObserveZCodeCompanionRejectsInvalidOutput(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			if _, err := ObserveZCodeCompanion(ctx, pkg, "/Applications/Test.app"); err == nil {
-				t.Fatal("invalid companion output was accepted")
+			observation, err := ObserveZCodeCompanion(ctx, pkg, "/Applications/Test.app")
+			if err == nil || observation.AppVersion != "" || (observation.Version == "0.2.0") != tc.versionRetained {
+				t.Fatalf("invalid diagnostic projection: observation=%+v, err=%v", observation, err)
 			}
 			if ctx.Err() != nil {
 				t.Fatalf("invalid diagnostic output consumed the caller deadline: %v", ctx.Err())
 			}
 		})
+	}
+}
+
+func TestObserveZCodeCompanionReportsClosedDesktopFloor(t *testing.T) {
+	const bundle = "/Applications/Test.app"
+	const script = `#!/bin/sh
+case "$1" in
+--version)
+  printf '%s\n' '{"name":"herdr-zcode","version":"0.2.0","runtimes":["core"],"osc7501":true,"capabilities":["core","osc7501","catalogFile","prepareIsolated","checkDesktop"]}'
+  ;;
+--check-desktop)
+  printf '%s\n' '{"compatible":false,"reason":"app_version_below_minimum","appVersion":"4.0.0","minZcodeAppVersion":"4.1.0","appBundle":"/Applications/Test.app"}'
+  exit 1
+  ;;
+esac
+`
+	launcher := makeZCodePackageFixture(t, canonicalTempDir(t), script)
+	pkg, err := ResolveZCodePackage(ResolveOptions{HasOverride: true, OverridePath: launcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := ObserveZCodeCompanion(t.Context(), pkg, bundle)
+	if err != nil || !observed.BelowMinimum || observed.AppVersion != "4.0.0" || observed.MinimumVersion != "4.1.0" {
+		t.Fatalf("closed Desktop floor observation = %+v / %v", observed, err)
 	}
 }
 

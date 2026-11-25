@@ -562,39 +562,6 @@ func (observation FileIdentityObservation) Found() bool          { return observ
 func (observation FileIdentityObservation) ResolvedPath() string { return observation.resolvedPath }
 func (observation FileIdentityObservation) SHA256() string       { return observation.sha256 }
 
-// ApplicationMetadataObservation binds one application version to the exact
-// descriptor-observed metadata file from which it was decoded.
-type ApplicationMetadataObservation struct {
-	path    string
-	sha256  string
-	version string
-}
-
-// NewApplicationMetadataObservation constructs a trusted application metadata
-// observation. Absence and malformed metadata are represented as typed
-// observation failures rather than partially populated values.
-func NewApplicationMetadataObservation(path, sha256, version string) (ApplicationMetadataObservation, error) {
-	if err := validateAnchoredRoot(path); err != nil {
-		return ApplicationMetadataObservation{}, fmt.Errorf("application metadata observation: path: %w", err)
-	}
-	if err := validateSHA256(sha256); err != nil {
-		return ApplicationMetadataObservation{}, fmt.Errorf("application metadata observation: %w", err)
-	}
-	if version == "" || validateRedactedText(version, 128) != nil || strings.TrimSpace(version) != version {
-		return ApplicationMetadataObservation{}, fmt.Errorf("application metadata observation: invalid version")
-	}
-	return ApplicationMetadataObservation{path: path, sha256: sha256, version: version}, nil
-}
-
-func (observation ApplicationMetadataObservation) Path() string    { return observation.path }
-func (observation ApplicationMetadataObservation) SHA256() string  { return observation.sha256 }
-func (observation ApplicationMetadataObservation) Version() string { return observation.version }
-
-func (observation ApplicationMetadataObservation) Valid() bool {
-	_, err := NewApplicationMetadataObservation(observation.path, observation.sha256, observation.version)
-	return err == nil
-}
-
 // IdentityObservationFailureKind classifies failures that are safe for
 // provider-family scoped admission handling. Unknown failures remain ordinary
 // errors and must not be downgraded by callers.
@@ -710,7 +677,6 @@ type EnvironmentInspector interface {
 	ObserveExecutable(context.Context, string) (ExecutableObservation, error)
 	ObserveExecutableIdentity(context.Context, string) (ExecutableObservation, error)
 	ObserveReadableFileIdentity(context.Context, string) (FileIdentityObservation, error)
-	ObserveApplicationMetadata(context.Context, string) (ApplicationMetadataObservation, error)
 	ObserveNativeHomeIdentity(context.Context, string) (NativeHomeLaunchAuthority, error)
 	ObservePermission(context.Context, AnchoredRoot, SafeRelativePath) (PermissionObservation, error)
 }

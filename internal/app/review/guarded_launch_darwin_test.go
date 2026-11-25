@@ -18,20 +18,10 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-// guardedLaunchFaultEnvironment is a test-only fault injector: when the launch
-// child (this same test binary, re-entered through a hidden descriptor-bound
-// launch mode) sees it, TestMain corrupts the private launch arguments before
-// the trusted trampoline validates them, forcing the real boundary-abort
-// failure surface before sandbox or provider execution ever starts.
-const guardedLaunchFaultEnvironment = "MULGAE_TEST_GUARDED_LAUNCH_FAULT"
-
 // TestMain routes the binary's hidden launch modes exactly like the real
 // entrypoint. It is the production ExecInheritedDirectory trampoline, not a
 // simulated failure.
 func TestMain(m *testing.M) {
-	if os.Getenv(guardedLaunchFaultEnvironment) != "" && len(os.Args) >= 3 && strings.HasPrefix(os.Args[1], "__mulgae_") {
-		os.Args[2] = "faulted"
-	}
 	handled, err := processadapter.ExecInheritedDirectory(os.Args)
 	if handled {
 		if err != nil {
@@ -48,46 +38,90 @@ type guardedLaunchClock struct{}
 func (guardedLaunchClock) Now() time.Time { return time.Now().UTC() }
 
 type guardedLaunchRecordingRunner struct {
-	ports.ProcessRunner
-	conversation ports.ProviderConversationRunner
-	boundary     ports.LiveReadOnlyBoundary
-	observed     ports.ProcessObservation
-	calls        int
-	guarded      bool
+	t        *testing.T
+	process  ports.ProcessRunner
+	control  ports.AnchoredRoot
+	identity ports.TerminalRuntimeIdentity
+	observed ports.ProcessObservation
+	calls    int
+	guarded  bool
 }
 
-func (runner *guardedLaunchRecordingRunner) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
+func (runner *guardedLaunchRecordingRunner) RunTerminal(ctx context.Context, request ports.TerminalExecutionRequest) (ports.TerminalExecutionObservation, error) {
 	runner.calls++
-	if _, alreadyGuarded := request.LiveReadOnlyBoundary(); !alreadyGuarded {
-		var err error
-		request, err = ports.NewLiveReadOnlyProcessRequest(request, runner.boundary)
-		if err != nil {
-			return ports.ProcessObservation{}, err
-		}
+	process := request.Process()
+	if dir, _, ok := process.LaunchDirectory(); ok {
+		defer dir.Close()
 	}
-	_, runner.guarded = request.LiveReadOnlyBoundary()
-	observation, err := runner.conversation.Converse(ctx, request, driver)
-	runner.observed = observation
-	return observation, err
+	boundary, ok := process.LiveReadOnlyBoundary()
+	runner.guarded = ok && boundary.PaneTTY()
+	launch, err := ports.NewPaneLaunchRequest(process, runner.control)
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	spec, err := processadapter.NewPaneLaunchBuilder().BuildPaneLaunch(ctx, launch)
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	argv := spec.Argv()
+	argv[2] = "invalid-control-file"
+	child, err := ports.NewProcessRequest(spec.Executable(), argv, nil, process.WorkingDirectory(), nil, process.Timeout())
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	observation, err := runner.process.Run(ctx, child)
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	exit, exited := observation.ExitCode()
+	if !exited || observation.Termination() != ports.ProcessTerminationExited {
+		runner.t.Fatalf("expected natural trampoline exit: %v", observation.Termination())
+	}
+	final, err := ports.NewExitedProcessFinalTermination(exit)
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	// Runner.Run verifies process-group absence before returning a normal exit.
+	lifecycle, err := ports.NewProcessLifecycleReceipt(final, true, nil)
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	runner.observed, err = ports.NewStartedProcessObservation(observation.Stdout(), observation.Stderr(),
+		observation.Termination(), observation.StdinWriteReceipt(), lifecycle, observation.StartedAt(), observation.EndedAt())
+	if err != nil {
+		runner.t.Fatal(err)
+	}
+	return ports.NewTerminalExecutionObservation(ports.TerminalExecutionObservationInput{
+		Process: runner.observed, RuntimeIdentity: runner.identity, ExitedBeforeReport: true,
+	})
+}
+
+func (runner *guardedLaunchRecordingRunner) RuntimeIdentity(context.Context) (ports.TerminalRuntimeIdentity, error) {
+	return runner.identity, nil
+}
+
+func (*guardedLaunchRecordingRunner) DrainLabeledPanes(context.Context, string, string) error {
+	return nil
+}
+func (*guardedLaunchRecordingRunner) Close(context.Context) error { return nil }
+func (*guardedLaunchRecordingRunner) VerifyProviderSpawn(ctx context.Context, _ providercli.RuntimeDefinition) error {
+	return ctx.Err()
 }
 
 // TestGuardedLaunchAbortTraversesRealFailureClassification proves that an
-// actual trampoline-aborted guarded launch crosses the real registry protocol
-// driver, real process runner, and normal application policy: the attempt
-// fails closed with a typed provider condition that permits only the bounded
-// same-provider retry, never repair, extraction, or any output authority.
+// actual pane-trampoline abort crosses the registry's terminal driver and
+// normal application policy. The typed pre-readiness failure closes the
+// attempt without repair, extraction, or output authority.
 func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
-	binary, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	const binary = "/usr/bin/true"
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	source, neutral := filepath.Join(base, "source"), filepath.Join(base, "neutral")
 	credentials, namespace := filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
-	for _, path := range []string{source, neutral, credentials, namespace} {
+	control := filepath.Join(base, "control")
+	for _, path := range []string{source, neutral, credentials, namespace, control} {
 		if err := os.Mkdir(path, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -120,26 +154,34 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	execution, err = ports.NewLiveReviewExecutionWithControlPlane(execution, []ports.AnchoredRoot{root(control)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	// Real runner and real registry with the real protocol driver; the fault
-	// environment is inherited by the launch child, whose TestMain aborts the
-	// trusted launch before any sandbox or provider execution.
 	processRunner, err := processadapter.NewRunner(guardedLaunchClock{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	boundary, err := ports.NewLiveReadOnlyBoundary([]ports.AnchoredRoot{root(source), home.Root()}, []ports.AnchoredRoot{root(credentials)}, root(namespace))
+	digest := "sha256:" + strings.Repeat("a", 64)
+	runtimeIdentity, err := ports.NewTerminalRuntimeIdentity("/synthetic/hc", digest, "0.1.0", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &guardedLaunchRecordingRunner{ProcessRunner: processRunner, conversation: processRunner, boundary: boundary}
-	environment := []ports.EnvironmentVariable{
-		mustGuardedEnvironment(t, "PATH", "/usr/bin:/bin"),
-		mustGuardedEnvironment(t, guardedLaunchFaultEnvironment, "1"),
+	runner := &guardedLaunchRecordingRunner{t: t, process: processRunner, control: root(control), identity: runtimeIdentity}
+	policy, err := providercli.RuntimeSafetyPolicyForFamily(providercli.CredentialSourceGrok)
+	if err != nil {
+		t.Fatal(err)
 	}
-	definition, err := providercli.NewRuntimeDefinition(
-		providercli.FamilyZcode, "zcode-guarded-abort", "1.0.0", binary, "",
-		"guarded-abort-profile", []string{binary}, environment, neutral, time.Second,
+	const instance = "grok-guarded-abort"
+	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelTerminal, -1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
+		providercli.FamilyGrok, instance, "1.0.89", binary, digest, binary, digest, "", "",
+		"guarded-abort-profile", "guarded-abort-generation", policy.Identity(), []string{binary},
+		transport, nil, neutral, 30*time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +190,13 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := providercli.NewRegistryWithNamespaceFactory(runner, namespaces, definition)
+	factory, err := providercli.NewCredentialProjectingNamespaceFactoryWithPolicies(namespaces, base,
+		map[string]providercli.CredentialSourceFamily{instance: providercli.CredentialSourceGrok},
+		map[string]providercli.RuntimeSafetyPolicy{instance: policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := providercli.NewProductionRegistryWithTerminalRunner(t.Context(), processRunner, runner, factory, runner, definition)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +214,7 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, job, material := providerRuntimeExplicitFixture(t, nil)
-	job.route = coordinatorTypesRoute(t, "zcode-guarded-abort")
+	job.route = coordinatorTypesRoute(t, instance)
 	job.target, err = identity.RunTarget()
 	if err != nil {
 		t.Fatal(err)
@@ -206,22 +254,18 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 	if !ok {
 		t.Fatalf("aborted guarded launch lost its typed condition: %#v", outcome)
 	}
-	// The real protocol driver maps the pre-provider stream end to a typed
-	// provider failure cause; application policy must classify it as an
-	// ordinary bounded-retry provider condition, never a repairable output
-	// condition and never an invented launch classification.
-	if condition != AttemptConditionProviderTurnFailed && condition != AttemptConditionProviderUnavailable {
-		t.Fatalf("aborted guarded launch condition = %q, want a typed provider failure", condition)
+	if condition != AttemptConditionProviderSpawnFailed {
+		t.Fatalf("aborted guarded launch condition = %q, want provider_spawn_failed", condition)
 	}
 	row, found := lookupTransitionPolicy(condition)
 	if !found {
 		t.Fatalf("condition %q has no transition policy", condition)
 	}
-	if row.action != transitionActionRetryOnly {
-		t.Fatalf("condition %q action = %d, want retry-only", condition, row.action)
+	if row.action != transitionActionFailClosed {
+		t.Fatalf("condition %q action = %d, want fail-closed", condition, row.action)
 	}
-	if row.providerUnusable {
-		t.Fatalf("condition %q marked the provider unusable", condition)
+	if !row.providerUnusable {
+		t.Fatalf("condition %q did not mark the provider unusable", condition)
 	}
 	runtime.mu.Lock()
 	pendingRepair, pendingExtraction := len(runtime.pending), len(runtime.pendingExtraction)
@@ -229,13 +273,4 @@ func TestGuardedLaunchAbortTraversesRealFailureClassification(t *testing.T) {
 	if pendingRepair != 0 || pendingExtraction != 0 {
 		t.Fatalf("aborted guarded launch scheduled repair (%d) or extraction (%d)", pendingRepair, pendingExtraction)
 	}
-}
-
-func mustGuardedEnvironment(t *testing.T, name, value string) ports.EnvironmentVariable {
-	t.Helper()
-	variable, err := ports.NewEnvironmentVariable(name, value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return variable
 }

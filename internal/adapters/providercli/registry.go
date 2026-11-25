@@ -100,6 +100,7 @@ type RuntimeDefinition struct {
 	applicationVersion, applicationMetadata                 string
 	applicationMetadataSHA256                               string
 	runtimeSafetyPolicyIdentity                             string
+	zcodeCompanion                                          ports.ZCodeCompanionObservation
 	zcodeModel                                              string
 	zcodeReasoningEffort                                    string
 	grokModel                                               string
@@ -108,7 +109,6 @@ type RuntimeDefinition struct {
 	profileID                                               string
 	baseArgv                                                []string
 	transport                                               RuntimeTransport
-	protocolDriver                                          providerProtocolDriverConstructor
 	environment                                             []ports.EnvironmentVariable
 	workingDirectory                                        string
 	timeout                                                 time.Duration
@@ -150,8 +150,7 @@ func NewRuntimeDefinitionWithTransport(
 	workingDirectory string,
 	timeout time.Duration,
 ) (RuntimeDefinition, error) {
-	authority, err := adapterAuthorityForFamily(family)
-	if err != nil {
+	if _, err := adapterAuthorityForFamily(family); err != nil {
 		return RuntimeDefinition{}, fmt.Errorf("provider runtime definition: %w", err)
 	}
 	definition := RuntimeDefinition{
@@ -159,7 +158,6 @@ func NewRuntimeDefinitionWithTransport(
 		executableSHA256: executableSHA256, profileID: profileID,
 		baseArgv:         append([]string(nil), baseArgv...),
 		transport:        transport,
-		protocolDriver:   authority.protocolDriver,
 		environment:      append([]ports.EnvironmentVariable(nil), environment...),
 		workingDirectory: workingDirectory, timeout: timeout,
 	}
@@ -277,7 +275,11 @@ func (d RuntimeDefinition) Environment() []ports.EnvironmentVariable {
 	return append([]ports.EnvironmentVariable(nil), d.environment...)
 }
 func (d RuntimeDefinition) WorkingDirectory() string { return d.workingDirectory }
-func (d RuntimeDefinition) Timeout() time.Duration   { return d.timeout }
+func (d RuntimeDefinition) ZCodeCompanion() ports.ZCodeCompanionObservation {
+	return d.zcodeCompanion
+}
+
+func (d RuntimeDefinition) Timeout() time.Duration { return d.timeout }
 func (d RuntimeDefinition) PostOutputLifecycle() (ports.BoundedPostOutputLifecycle, bool) {
 	if !d.hasPostOutputLifecycle {
 		return ports.BoundedPostOutputLifecycle{}, false
@@ -332,19 +334,12 @@ func (d RuntimeDefinition) validate() error {
 		if d.executableSHA256 == "" || !validCanonicalAbsolute(d.launcher) || d.launcherSHA256 == "" || d.profileGeneration == "" {
 			return fmt.Errorf("production identity is incomplete")
 		}
-		if d.family == FamilyZcode {
-			if len(d.baseArgv) < 2 || d.baseArgv[1] != d.launcher {
-				return fmt.Errorf("zcode base argv must contain launcher")
-			}
-			if !validCanonicalAbsolute(d.zcodeProviderConfig) || !validSHA256Identity(d.zcodeProviderConfigSHA256) ||
-				!hasExactEnvironmentVariable(d.environment, "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", d.zcodeProviderConfig) ||
-				!hasExactEnvironmentVariable(d.environment, "ELECTRON_RUN_AS_NODE", "1") {
-				return fmt.Errorf("zcode provider config identity is incomplete")
-			}
-		} else if d.launcher != d.executable || d.launcherSHA256 != d.executableSHA256 {
+		if d.launcher != d.executable || d.launcherSHA256 != d.executableSHA256 {
 			return fmt.Errorf("direct launcher identity must equal executable identity")
-		} else if d.zcodeProviderConfig != "" || d.zcodeProviderConfigSHA256 != "" || hasZCodeProviderConfigEnvironment(d.environment) || hasEnvironmentVariable(d.environment, "ELECTRON_RUN_AS_NODE") {
-			return fmt.Errorf("zcode provider config is bound to another family")
+		}
+		if d.zcodeProviderConfig != "" || d.zcodeProviderConfigSHA256 != "" ||
+			hasZCodeProviderConfigEnvironment(d.environment) || hasEnvironmentVariable(d.environment, "ELECTRON_RUN_AS_NODE") {
+			return fmt.Errorf("retired ZCode launch environment")
 		}
 	}
 	if d.hasPostOutputLifecycle || d.postOutputLifecycle.Valid() {
@@ -368,19 +363,8 @@ func (d RuntimeDefinition) validate() error {
 	if authorityErr != nil {
 		return authorityErr
 	}
-	switch d.transport.channel {
-	case ports.ProviderPacketChannelProtocol:
-		if authority.protocolDriver == nil || d.protocolDriver == nil || reflect.TypeOf(d.protocolDriver) != reflect.TypeOf(authority.protocolDriver) {
-			return fmt.Errorf("protocol transport and driver authority must be paired")
-		}
-	case ports.ProviderPacketChannelTerminal:
-		if authority.terminalProfile == nil || d.protocolDriver != nil {
-			return fmt.Errorf("terminal transport and terminal profile authority must be paired")
-		}
-	default:
-		if d.protocolDriver != nil || authority.protocolDriver != nil {
-			return fmt.Errorf("protocol transport and driver authority must be paired")
-		}
+	if d.transport.channel == ports.ProviderPacketChannelTerminal && authority.terminalProfile == nil {
+		return fmt.Errorf("terminal transport profile is missing")
 	}
 	return nil
 }
@@ -482,14 +466,6 @@ func (namespace retainedQualificationNamespace) Environment() []ports.Environmen
 	return namespace.lease.Environment()
 }
 
-func (namespace retainedQualificationNamespace) zcodeAccountRuntime(ctx context.Context, definition RuntimeDefinition) (*zcodeAccountRuntime, error) {
-	authority, ok := namespace.lease.(zcodeAccountRuntimeAuthority)
-	if !ok {
-		return nil, nil
-	}
-	return authority.zcodeAccountRuntime(ctx, definition)
-}
-
 func (namespace retainedQualificationNamespace) RuntimeSafetyPolicyIdentity() string {
 	lease, ok := namespace.lease.(namespaceRuntimeSafetyPolicyIdentity)
 	if !ok {
@@ -541,14 +517,18 @@ func (namespace retainedQualificationNamespace) grokQualificationBinding(source 
 	if !ok || lease == nil || !source.Valid() {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, fmt.Errorf("grok qualification: missing namespace")
 	}
-	if !validCanonicalAbsolute(lease.grokRuntimeHome) {
+	homePath := lease.grokRuntimeHome
+	if lease.zcodeNativeHome != "" {
+		homePath = lease.zcodeNativeHome
+	}
+	if !validCanonicalAbsolute(homePath) {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, fmt.Errorf("grok qualification: missing runtime home")
 	}
-	nativeHome, err := ports.NewAnchoredRoot(lease.grokRuntimeHome)
+	nativeHome, err := ports.NewAnchoredRoot(homePath)
 	if err != nil {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, err
 	}
-	launchDir, neutral, err := openNeutralQualificationDirectory(lease.grokRuntimeHome)
+	launchDir, neutral, err := openNeutralQualificationDirectory(homePath)
 	if err != nil {
 		return ports.LiveReadOnlyBoundary{}, ports.AnchoredRoot{}, ports.AnchoredRoot{}, "", nil, err
 	}
@@ -567,12 +547,19 @@ func (namespace retainedQualificationNamespace) grokQualificationBinding(source 
 	if err := rejectContainedLaunch(source.String(), neutral.String(), writable.String()); err != nil {
 		return fail(fmt.Errorf("grok qualification: %w", err))
 	}
-	extras, err := qualificationCredentialExtras(lease.grokRuntimeHome, source.String())
+	extras, err := qualificationCredentialExtras(homePath, source.String())
 	if err != nil {
 		return fail(fmt.Errorf("grok qualification: %w", err))
 	}
 	extras = append(extras, lease.grokConfiguredRoots...)
-	credentials, err := boundaryCredentials([]ports.AnchoredRoot{synthetic}, synthetic.String(), extras)
+	if lease.zcodeNativeHome != "" {
+		synthetic, err = ports.NewAnchoredRoot(filepath.Join(homePath, ".zcode"))
+		if err != nil {
+			return fail(err)
+		}
+		extras = append(extras, filepath.Join(homePath, "Library", "Keychains"))
+	}
+	credentials, err := boundaryCredentials(nil, synthetic.String(), extras)
 	if err != nil {
 		return fail(err)
 	}
@@ -597,6 +584,66 @@ func (namespace retainedQualificationNamespace) bindGrokTerminalRuntimeIdentity(
 		return nil
 	}
 	return lease.bindGrokTerminalRuntimeIdentity(identity)
+}
+
+func (namespace retainedQualificationNamespace) concreteNamespace() *namespaceLease {
+	lease, _ := namespace.lease.(*namespaceLease)
+	return lease
+}
+
+func (r *Registry) BindProviderQualification(candidate ports.ProviderRuntimeDefinition, authority ports.ProviderDirectExecutionAuthority, version string, roles []domain.Role) error {
+	definition, ok := candidate.(RuntimeDefinition)
+	if !ok {
+		return securityProbeFailure("namespace", "foreign qualification definition", nil)
+	}
+	if definition.Family() != FamilyZcode {
+		return nil
+	}
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	lease, ok := r.namespaces[definition.Instance()].(*namespaceLease)
+	receipt, trusted := currentProbeDirectExecutionAuthorityReceiptFrom(authority)
+	fail := func(reason string) error {
+		return securityProbeFailure("namespace", reason,
+			providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, errors.New(reason)))
+	}
+	if r.closed || !ok || !trusted || !receipt.Matches(definition, version, lease.Generation(), roles) {
+		return fail("ZCode qualification does not match retained namespace")
+	}
+	proof := receipt.proofs[0]
+	if proof.ZCodePreparation == nil {
+		return fail("ZCode preparation is missing")
+	}
+	terminal, err := ports.NewTerminalRuntimeIdentity(proof.TerminalRuntimeExecutable, proof.TerminalRuntimeExecutableSHA256, proof.TerminalRuntimeVersion, proof.TerminalRuntimeGeneration)
+	if err != nil {
+		return fail("ZCode terminal identity is invalid")
+	}
+	profile, err := zcodeProfileForDefinition(definition)
+	if err != nil {
+		return securityProbeFailure("namespace", "ZCode companion authority changed", err)
+	}
+	policy, err := RuntimeSafetyPolicyForZCodeTerminal(terminal, profile.pkg, profile.appBundle, *proof.ZCodePreparation, definition.ZCodeModel(), definition.ZCodeReasoningEffort())
+	if err != nil || policy.Identity() != proof.TerminalRuntimePolicyIdentity {
+		return fail("qualified ZCode terminal policy changed")
+	}
+	for _, related := range receipt.proofs[1:] {
+		if related.ZCodePreparation == nil || *related.ZCodePreparation != *proof.ZCodePreparation ||
+			related.TerminalRuntimePolicyIdentity != proof.TerminalRuntimePolicyIdentity ||
+			related.TerminalRuntimeGeneration != terminal.Generation() ||
+			related.TerminalRuntimeExecutable != terminal.Executable() ||
+			related.TerminalRuntimeExecutableSHA256 != terminal.ExecutableSHA256() ||
+			related.TerminalRuntimeVersion != terminal.Version() {
+			return fail("conflicting ZCode role proofs")
+		}
+	}
+	lease.policyMu.Lock()
+	defer lease.policyMu.Unlock()
+	if lease.zcodeQualified ||
+		(lease.zcodePrepared.valid() && (lease.zcodePrepared != *proof.ZCodePreparation || lease.zcodeTerminal != terminal)) {
+		return fail("ZCode qualification identity changed")
+	}
+	lease.zcodePrepared, lease.zcodeTerminal, lease.zcodeQualified = *proof.ZCodePreparation, terminal, true
+	return nil
 }
 
 // Registry is an immutable, concurrent-safe opt-in set of provider capability profiles.
@@ -904,16 +951,9 @@ func (r *Registry) QualificationNamespace(instance string) (QualificationNamespa
 // every per-invocation staging directory of one provider instance.
 const stagedOutputParentDirectoryName = "output"
 
-// familyReviewOutputTransport declares how a review invocation of family is
-// expected to deliver its role report. Each grant comes from live capability
-// evidence, never from preference: ZCode reliably writes one regular file at an
-// absolute staging path once it runs outside plan mode with Write removed from
-// the review denylist. Managed terminal providers (Grok) stage internally and
-// project accepted bytes as isolated stdout transport (result_transport: "stdout").
-func familyReviewOutputTransport(family string) ports.ProviderOutputTransport {
-	if family == FamilyZcode {
-		return ports.ProviderOutputTransportStagedFile
-	}
+// Terminal profiles stage internally. Accepted bytes use the existing
+// isolated stdout result envelope.
+func familyReviewOutputTransport(string) ports.ProviderOutputTransport {
 	return ports.ProviderOutputTransportStdout
 }
 
@@ -1049,32 +1089,16 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if err := namespace.ValidateForSpawn(); err != nil {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: namespace lease validation: %w", err))
 	}
-	// The staging lease is acquired before the process starts and released on
-	// every exit path below - success, provider failure, guard failure, timeout
-	// and cancellation alike - exactly as the workspace guard is.
-	staging, stagingErr := r.acquireStagedOutputLease(invocation)
-	if stagingErr != nil {
-		return ports.ProviderExecutionObservation{}, stagingErr
+	live, present := invocation.LiveExecution()
+	if !present {
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
+			fmt.Errorf("provider registry: terminal definition requires live execution authority"))
 	}
-	if staging != nil {
-		defer func() {
-			observation, err = releaseStagedOutputLease(staging, definition, invocation, observation, err)
-		}()
+	if _, staged := invocation.StagedOutputDestination(); staged {
+		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderOutputStagingViolation,
+			fmt.Errorf("provider registry: terminal output staging belongs to the driver"))
 	}
-
-	var processObservation ports.ProcessObservation
-	var conversationEvidence []byte
-	var runErr error
-	if live, ok := invocation.LiveExecution(); ok {
-		processObservation, conversationEvidence, runErr = r.runInLiveSource(ctx, definition, invocation, live, packet, namespace)
-	} else if workspace, ok := invocation.ExecutionWorkspace(); ok {
-		processObservation, conversationEvidence, runErr = r.runInWorkspace(ctx, definition, invocation, workspace, packet, namespace, namespace.Environment(), staging)
-	} else {
-		if definition.requiresWorkspaceAuthority {
-			return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: production definition requires workspace authority"))
-		}
-		processObservation, conversationEvidence, runErr = r.runLegacy(ctx, definition, packet, namespace.Environment(), invocation.Purpose(), staging)
-	}
+	processObservation, stagedOutput, runErr := r.runInLiveSource(ctx, definition, invocation, live, packet, namespace)
 	if runErr != nil {
 		// Terminal driver failures already hold an exact closed classification
 		// that never lets post-kill screen text override security, launch, or
@@ -1117,7 +1141,13 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 		}
 		var configurationFailure *domain.Failure
 		if !protectedFailure && errors.As(runErr, &configurationFailure) && configurationFailure.Class() == domain.FailureConfiguration &&
-			(configurationFailure.Stage() == "zcode_model_selection" || configurationFailure.Stage() == "zcode_account_configuration") && processObservation.Valid() {
+			(configurationFailure.Stage() == "zcode_model_selection" || configurationFailure.Stage() == "zcode_account_configuration") {
+			if !processObservation.Valid() {
+				return ports.NewPartialFailedProviderExecutionObservation(
+					ports.ProviderExecutionStatusConfigurationViolation, invocation, nil, nil,
+					configurationFailure.Stage(), domain.DiagnosticCauseObservationInvalid, "",
+				)
+			}
 			var conversationFailure interface {
 				SessionObservation() ports.ProviderSessionObservation
 			}
@@ -1210,73 +1240,21 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 	if !processObservation.Valid() {
 		return ports.ProviderExecutionObservation{}, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, fmt.Errorf("provider registry: process runner returned invalid observation"))
 	}
-	// A protocol conversation succeeds through its driver: the runner's
-	// receipt-proven bounded teardown classifies as signaled, and a server
-	// that ends on its own after the close must exit zero. Any other
-	// termination keeps the one-shot failure classification. The predicate is
-	// the same one the staged-success validation and the direct-execution
-	// role proof apply, so the layers cannot drift apart.
-	protocolConversationSucceeded := definition.transport.channel == ports.ProviderPacketChannelProtocol &&
-		processObservation.ProtocolConversationCompleted()
-	terminalSessionSucceeded := definition.transport.channel == ports.ProviderPacketChannelTerminal &&
-		processObservation.TerminalSessionCompleted()
-	if processObservation.Succeeded() || protocolConversationSucceeded || terminalSessionSucceeded {
-		if staging != nil {
-			// The workspace guard has already revalidated at this point, so the
-			// staged bytes are read back from a snapshot that never drifted.
-			return stagedFileObservation(definition, invocation, processObservation, staging)
-		}
-		if definition.transport.channel == ports.ProviderPacketChannelProtocol ||
-			definition.transport.channel == ports.ProviderPacketChannelTerminal {
-			// An unstaged protocol conversation or managed terminal session
-			// returns its verified report or structured extraction: captured or
-			// staged bytes are the exact provider result, and raw stdout/screen
-			// capture remains diagnostic evidence only.
-			if conversationEvidence == nil {
-				return ports.NewFailedProviderExecutionObservationWithCause(
-					ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
-					"provider_output_missing", domain.DiagnosticCauseOutputMissing, "",
-				)
-			}
-			result, resultErr := ports.NewProviderResultForInput(conversationEvidence, invocation.InputIdentity())
-			if resultErr != nil {
-				return ports.NewFailedProviderExecutionObservationWithCause(
-					ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
-					"invalid_provider_output", domain.DiagnosticCauseResultBindingFailed, "",
-				)
-			}
-			return ports.NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, processObservation)
-		}
-		providerOutput, outputErr := completeProcessStdout(ctx, processObservation)
-		if outputErr != nil {
+	if processObservation.TerminalSessionCompleted() {
+		if len(stagedOutput) == 0 {
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
-				"provider_output_read_failed", domain.DiagnosticCauseOutputDecodeFailed, "",
+				"provider_output_missing", domain.DiagnosticCauseOutputMissing, "",
 			)
 		}
-		resultBytes, isolated, parseErr := providerResult(definition.family, providerOutput)
-		if parseErr != nil {
-			cause := domain.DiagnosticCauseOutputDecodeFailed
-			var outputFailure *providerOutputFailure
-			if errors.As(parseErr, &outputFailure) {
-				cause = outputFailure.Cause()
-			}
-			return ports.NewFailedProviderExecutionObservationWithCause(
-				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
-				providerOutputDiagnostic(cause), cause, "",
-			)
-		}
-		result, resultErr := ports.NewProviderResultForInput(resultBytes, invocation.InputIdentity())
-		if resultErr != nil {
+		result, err := ports.NewProviderResultForInput(stagedOutput, invocation.InputIdentity())
+		if err != nil {
 			return ports.NewFailedProviderExecutionObservationWithCause(
 				ports.ProviderExecutionStatusArtifactFailure, invocation, processObservation,
 				"invalid_provider_output", domain.DiagnosticCauseResultBindingFailed, "",
 			)
 		}
-		if isolated {
-			return ports.NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, processObservation)
-		}
-		return ports.NewSuccessfulProviderExecutionObservation(invocation, result, processObservation)
+		return ports.NewIsolatedSuccessfulProviderExecutionObservation(invocation, result, processObservation)
 	}
 	status, diagnostic, cause := classifyReviewProviderFailure(definition.family, processObservation)
 	return ports.NewFailedProviderExecutionObservationWithCause(
@@ -1468,177 +1446,6 @@ func spawnRevalidationFailure(operation string, err error) error {
 	return providerRuntimeFailure(cause, fmt.Errorf("provider registry: %s: %w", operation, err))
 }
 
-// executeProviderProcess runs one provider process request. Protocol-channel
-// routes converse the packet through the definition's bound session driver instead of
-// delivering it upfront; every other channel keeps the one-shot run path. The
-// returned evidence is the conversation's captured assistant text for
-// extraction conversations and nil otherwise.
-func (r *Registry) executeProviderProcess(ctx context.Context, definition definition, packet ports.ProviderPacket, request ports.ProcessRequest, purpose ports.ProviderInvocationPurpose, writeAuthority protocolWriteAuthority) (ports.ProcessObservation, []byte, error) {
-	if definition.transport.channel != ports.ProviderPacketChannelProtocol {
-		observation, err := r.runner.Run(ctx, request)
-		return observation, nil, err
-	}
-	if definition.protocolDriver == nil {
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
-			fmt.Errorf("provider registry: protocol driver is unavailable"))
-	}
-	_, ok := r.runner.(ports.ProviderConversationRunner)
-	if !ok {
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed,
-			fmt.Errorf("provider registry: process runner cannot converse"))
-	}
-	configuration, err := protocolConfigurationForNamespace(ctx, RuntimeDefinition(definition), r.namespaces[definition.instance])
-	if err != nil {
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
-	}
-	return r.executeProtocolProviderProcess(ctx, definition, packet, request, protocolPurposeForReview(purpose), writeAuthority, configuration)
-}
-
-func (r *Registry) executeProtocolProviderProcess(ctx context.Context, definition definition, packet ports.ProviderPacket, request ports.ProcessRequest, purpose protocolInvocationPurpose, writeAuthority protocolWriteAuthority, configuration protocolSessionConfiguration) (ports.ProcessObservation, []byte, error) {
-	closeUnconsumedLaunch := func() {
-		if directory, _, bound := request.LaunchDirectory(); bound {
-			_ = directory.Close()
-		}
-	}
-	conversationRunner, ok := r.runner.(ports.ProviderConversationRunner)
-	if !ok || definition.protocolDriver == nil {
-		closeUnconsumedLaunch()
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: protocol execution is unavailable"))
-	}
-	session, err := definition.protocolDriver.NewSession(request.WorkingDirectory(), packet.Bytes(), purpose, writeAuthority, configuration)
-	if err != nil {
-		closeUnconsumedLaunch()
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid, err)
-	}
-	observation, err := conversationRunner.Converse(ctx, request, session)
-	evidence := session.AssistantEvidenceText()
-	if cleanupErr := releaseProtocolTranscript(observation); cleanupErr != nil {
-		err = errors.Join(err, providerRuntimeFailure(domain.DiagnosticCauseObservationInvalid,
-			fmt.Errorf("provider registry: %w", cleanupErr)))
-	}
-	if err != nil {
-		if sessionObservation, ok := session.SessionObservation(); ok {
-			err = &protocolConversationFailure{observation: sessionObservation, err: err}
-		}
-		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
-	}
-	return observation, evidence, nil
-}
-
-func (r *Registry) runLegacy(
-	ctx context.Context, definition definition, packet ports.ProviderPacket, environment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose, staging *stagedOutputLease,
-) (ports.ProcessObservation, []byte, error) {
-	request, err := processRequest(definition, packet, definition.workingDirectory, environment, purpose)
-	if err != nil {
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", err))
-	}
-	if definition.requiresSpawnVerification {
-		if r.spawnVerifier == nil {
-			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing spawn verifier"))
-		}
-		if err := r.spawnVerifier.VerifyProviderSpawn(ctx, RuntimeDefinition(definition)); err != nil {
-			return ports.ProcessObservation{}, nil, spawnRevalidationFailure("spawn revalidation", err)
-		}
-	}
-	observation, evidence, err := r.executeProviderProcess(ctx, definition, packet, request, purpose, staging)
-	if err != nil {
-		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
-	}
-	return observation, evidence, nil
-}
-
-func (r *Registry) runInWorkspace(
-	ctx context.Context, definition definition, invocation ports.ProviderInvocation,
-	workspace ports.WorkspaceExecutionAuthority, packet ports.ProviderPacket,
-	namespace ports.ProviderNamespaceLease, environment []ports.EnvironmentVariable, staging *stagedOutputLease,
-) (observation ports.ProcessObservation, conversationEvidence []byte, err error) {
-	expected, ok := invocation.WorkspaceSnapshotIdentity()
-	if !ok || !expected.Valid() || workspace.WorkspaceSnapshotIdentity() != expected {
-		return ports.ProcessObservation{}, nil, workspaceGuardError("workspace identity mismatch", nil)
-	}
-	guard, guardErr := workspace.RevalidateForExecution()
-	if guardErr != nil {
-		return ports.ProcessObservation{}, nil, workspaceGuardError("pre-execution revalidation", guardErr)
-	}
-	if nilWorkspaceExecutionGuard(guard) {
-		return ports.ProcessObservation{}, nil, workspaceGuardError("pre-execution revalidation returned nil guard", nil)
-	}
-	defer func() {
-		if closeErr := guard.Close(); closeErr != nil {
-			err = workspaceGuardError("close", closeErr)
-		}
-	}()
-
-	root := guard.WorkspaceRoot()
-	if guard.WorkspaceSnapshotIdentity() != expected || !root.Valid() || root.SnapshotIdentity() != expected {
-		return ports.ProcessObservation{}, nil, workspaceGuardError("guard workspace identity mismatch", nil)
-	}
-	request, requestErr := processRequest(definition, packet, root.Path(), environment, invocation.Purpose())
-	if requestErr != nil {
-		return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: %w", requestErr))
-	}
-	if _, staged := invocation.StagedOutputDestination(); !staged && definition.transport.channel != ports.ProviderPacketChannelProtocol {
-		request, requestErr = ports.NewSpooledStdoutProcessRequest(request)
-		if requestErr != nil {
-			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: mark report stdout: %w", requestErr))
-		}
-	}
-	launchDirectory, duplicateErr := guard.DuplicateLaunchDirectory()
-	if duplicateErr != nil {
-		return ports.ProcessObservation{}, nil, workspaceGuardError("duplicate launch directory", duplicateErr)
-	}
-	request, requestErr = ports.NewBoundProcessRequest(request, root, launchDirectory)
-	if requestErr != nil {
-		_ = launchDirectory.Close()
-		return ports.ProcessObservation{}, nil, workspaceGuardError("construct bound process request", requestErr)
-	}
-	if definition.requiresSpawnVerification {
-		if r.spawnVerifier == nil {
-			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, providerRuntimeFailure(domain.DiagnosticCauseProviderSpawnFailed, fmt.Errorf("provider registry: missing spawn verifier"))
-		}
-		if err := r.spawnVerifier.VerifyProviderSpawn(ctx, RuntimeDefinition(definition)); err != nil {
-			_ = launchDirectory.Close()
-			return ports.ProcessObservation{}, nil, spawnRevalidationFailure("spawn revalidation", err)
-		}
-	}
-
-	observation, conversationEvidence, err = r.executeProviderProcess(ctx, definition, packet, request, invocation.Purpose(), staging)
-	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return observation, nil, workspaceGuardError("post-execution revalidation", postErr)
-	}
-	if err != nil {
-		return observation, nil, fmt.Errorf("provider registry: process runner: %w", err)
-	}
-	return observation, conversationEvidence, nil
-}
-
-func processRequest(
-	definition definition, packet ports.ProviderPacket, workingDirectory string, namespaceEnvironment []ports.EnvironmentVariable, purpose ports.ProviderInvocationPurpose,
-) (ports.ProcessRequest, error) {
-	argv, binding, err := providerProcessRequestForPurpose(definition, packet, workingDirectory, purpose)
-	if err != nil {
-		return ports.ProcessRequest{}, fmt.Errorf("construct packet transport: %w", err)
-	}
-	environment, err := isolatedProcessEnvironment(definition.family, definition.environment, namespaceEnvironment)
-	if err != nil {
-		return ports.ProcessRequest{}, err
-	}
-	if lifecycle, ok := definition.postOutputPolicy(); ok {
-		return ports.NewProviderProcessRequestWithPostOutputLifecycle(
-			definition.executable, argv, environment, workingDirectory, binding,
-			lifecycle, definition.timeout,
-		)
-	}
-	return ports.NewProviderProcessRequest(
-		definition.executable, argv, environment, workingDirectory, binding,
-		definition.timeout,
-	)
-}
-
-// Close terminally drains every namespace after all in-flight provider calls
-// finish. A cancelled or partial drain remains retryable; successfully drained
-// namespaces retain their actual receipts and are never drained again.
 func (r *Registry) Close(ctx context.Context) (ports.ProviderRunTerminalReceipt, error) {
 	if r == nil || ctx == nil {
 		return ports.ProviderRunTerminalReceipt{}, fmt.Errorf("provider registry: invalid terminal drain")
@@ -1932,88 +1739,6 @@ func nilWorkspaceExecutionGuard(guard ports.WorkspaceExecutionGuard) bool {
 	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
-func providerProcessRequest(definition definition, packet ports.ProviderPacket, workingDirectory string) ([]string, ports.ProviderPacketBinding, error) {
-	return providerProcessRequestForPurpose(definition, packet, workingDirectory, ports.ProviderInvocationInitial)
-}
-
-func providerProcessRequestForPurpose(definition definition, packet ports.ProviderPacket, workingDirectory string, purpose ports.ProviderInvocationPurpose) ([]string, ports.ProviderPacketBinding, error) {
-	if !validCanonicalAbsolute(workingDirectory) {
-		return nil, ports.ProviderPacketBinding{}, fmt.Errorf("invalid working directory")
-	}
-	argv, err := buildArgvForPurpose(definition, workingDirectory, packet.Bytes(), purpose)
-	if err != nil {
-		return nil, ports.ProviderPacketBinding{}, err
-	}
-	switch definition.transport.channel {
-	case ports.ProviderPacketChannelArgvLiteral:
-		binding, err := ports.NewArgvLiteralProviderPacketBinding(packet, definition.transport.argvIndex)
-		return argv, binding, err
-	case ports.ProviderPacketChannelStdin:
-		binding, err := ports.NewStdinProviderPacketBinding(packet)
-		return argv, binding, err
-	case ports.ProviderPacketChannelPromptFile:
-		binding, err := ports.NewPromptFileProviderPacketBinding(
-			packet, definition.transport.argvIndex, definition.transport.reference, workingDirectory,
-		)
-		return argv, binding, err
-	case ports.ProviderPacketChannelProtocol:
-		binding, err := ports.NewProtocolProviderPacketBinding(packet)
-		return argv, binding, err
-	case ports.ProviderPacketChannelTerminal:
-		binding, err := ports.NewTerminalProviderPacketBinding(packet)
-		return argv, binding, err
-	default:
-		return nil, ports.ProviderPacketBinding{}, fmt.Errorf("unsupported packet channel")
-	}
-}
-
-func buildArgv(definition definition, workingDirectory string, packet []byte) ([]string, error) {
-	return buildArgvForPurpose(definition, workingDirectory, packet, ports.ProviderInvocationInitial)
-}
-
-func buildArgvForPurpose(definition definition, workingDirectory string, packet []byte, purpose ports.ProviderInvocationPurpose) ([]string, error) {
-	switch definition.transport.channel {
-	case ports.ProviderPacketChannelArgvLiteral:
-	case ports.ProviderPacketChannelStdin:
-	case ports.ProviderPacketChannelPromptFile:
-	case ports.ProviderPacketChannelProtocol:
-	case ports.ProviderPacketChannelTerminal:
-	default:
-		return nil, fmt.Errorf("unsupported packet channel")
-	}
-
-	argv := append([]string(nil), definition.baseArgv...)
-	switch definition.family {
-	case FamilyZcode:
-		return appendZcodeProtocolServerArgv(argv), nil
-	case FamilyGrok:
-		// Grok runs exclusively over the managed terminal transport with an
-		// invocation-bound neutral directory and disposable GROK_HOME. Legacy
-		// and snapshot routes fail closed instead of constructing an unbound launch.
-		return nil, fmt.Errorf("grok terminal transport requires live or qualification terminal execution")
-	default:
-		return nil, fmt.Errorf("unknown provider family")
-	}
-}
-
-func providerResult(family string, stdout []byte) ([]byte, bool, error) {
-	if len(bytes.TrimSpace(stdout)) == 0 {
-		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("provider output is empty"))
-	}
-	switch family {
-	case FamilyZcode:
-		// The app-server protocol delivers review reports through the staged
-		// file and qualification evidence through the conversation's captured
-		// assistant text; stdout carries only the protocol transcript and is
-		// never provider report content.
-		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("zcode protocol transport delivers no report on stdout"))
-	case FamilyGrok:
-		return nil, true, newProviderOutputFailure(domain.DiagnosticCauseOutputMissing, fmt.Errorf("grok terminal transport delivers no report on raw stdout"))
-	default:
-		return nil, false, newProviderOutputFailure(domain.DiagnosticCauseResultBindingFailed, fmt.Errorf("unknown provider family"))
-	}
-}
-
 func classifyProviderFailure(
 	family string,
 	observation ports.ProcessObservation,
@@ -2291,16 +2016,10 @@ func defaultRuntimeTransport(family string) (RuntimeTransport, error) {
 }
 
 func validateRuntimeTransportShape(family string, transport RuntimeTransport) error {
-	if family == FamilyGrok {
-		if transport.channel == ports.ProviderPacketChannelTerminal {
-			return nil
-		}
-		return fmt.Errorf("%s requires the terminal transport", family)
-	}
-	if transport.channel == ports.ProviderPacketChannelStdin || transport.channel == ports.ProviderPacketChannelProtocol {
+	if transport.channel == ports.ProviderPacketChannelTerminal {
 		return nil
 	}
-	return fmt.Errorf("%s requires the protocol transport", family)
+	return fmt.Errorf("%s requires the terminal transport", family)
 }
 
 func validPromptFileReference(value string) bool {

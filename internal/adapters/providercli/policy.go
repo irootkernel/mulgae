@@ -23,7 +23,7 @@ type RuntimeSafetyPolicy struct {
 
 var runtimeSafetyPolicies = func() map[CredentialSourceFamily]RuntimeSafetyPolicy {
 	values := map[CredentialSourceFamily]RuntimeSafetyPolicy{
-		CredentialSourceZCode: {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"permissions\":{\"allow\":[],\"ask\":[],\"deny\":[\"*\"]}}\n")},
+		CredentialSourceZCode: {family: CredentialSourceZCode, bytes: []byte("{\"family\":\"zcode\",\"transport\":\"isolated-zcode-terminal-v1\",\"pane_mode\":\"PaneTTY\",\"interaction_policy\":\"block\",\"profile_scope\":\"managed_namespace\"}\n")},
 		CredentialSourceGrok:  {family: CredentialSourceGrok, bytes: []byte("{\"family\":\"grok\",\"transport\":\"herdr-core-terminal-v1\",\"policy_scope\":\"isolated_namespace\",\"home_mode\":\"disposable_home_and_grok_home\",\"requirements_toml\":\"minimal-disposable-v1\",\"tty_mode\":\"pane-tty-only\",\"output_delivery\":\"post-esrch-staged-file-v1\",\"bash_gate\":\"index-commit-b1-v1\"}\n")},
 	}
 	for family, policy := range values {
@@ -94,54 +94,56 @@ func RuntimeSafetyPolicyForGrokTerminal(identity ports.TerminalRuntimeIdentity) 
 }
 
 type currentProbeDirectExecutionRoleProof struct {
-	TerminalRuntimeExecutable       string `json:"terminal_runtime_executable,omitempty"`
-	TerminalRuntimeExecutableSHA256 string `json:"terminal_runtime_executable_sha256,omitempty"`
-	TerminalRuntimeVersion          string `json:"terminal_runtime_version,omitempty"`
-	TerminalRuntimePolicyIdentity   string `json:"terminal_runtime_policy_identity,omitempty"`
-	Family                          string `json:"family"`
-	ProviderInstance                string `json:"provider_instance"`
-	ProviderVersion                 string `json:"provider_version"`
-	ObservedVersion                 string `json:"observed_version"`
-	Executable                      string `json:"executable"`
-	ExecutableSHA256                string `json:"executable_sha256"`
-	Launcher                        string `json:"launcher"`
-	LauncherSHA256                  string `json:"launcher_sha256"`
-	ApplicationVersion              string `json:"application_version,omitempty"`
-	ApplicationMetadata             string `json:"application_metadata,omitempty"`
-	ApplicationMetadataSHA256       string `json:"application_metadata_sha256,omitempty"`
-	ZCodeProviderConfig             string `json:"zcode_provider_config,omitempty"`
-	ZCodeProviderConfigSHA256       string `json:"zcode_provider_config_sha256,omitempty"`
-	ProfileID                       string `json:"profile_id"`
-	ProfileGeneration               string `json:"profile_generation"`
-	NamespaceGeneration             string `json:"namespace_generation"`
-	Role                            string `json:"role"`
-	SnapshotManifestSHA256          string `json:"snapshot_manifest_sha256"`
-	SnapshotName                    string `json:"snapshot_name"`
-	SnapshotPath                    string `json:"snapshot_path"`
-	SnapshotPolicyIdentity          string `json:"snapshot_policy_identity"`
-	SnapshotDevice                  uint64 `json:"snapshot_device"`
-	SnapshotInode                   uint64 `json:"snapshot_inode"`
-	RootDevice                      uint64 `json:"root_device"`
-	RootInode                       uint64 `json:"root_inode"`
-	ArgvSHA256                      string `json:"argv_sha256"`
-	NativeReference                 string `json:"native_reference"`
-	OutputSHA256                    string `json:"output_sha256"`
-	Termination                     string `json:"termination"`
-	HasExitCode                     bool   `json:"has_exit_code"`
-	ExitCode                        int    `json:"exit_code"`
-	HasSignal                       bool   `json:"has_signal"`
-	SignalNumber                    int    `json:"signal_number"`
-	SignalName                      string `json:"signal_name"`
-	TransportChannel                string `json:"transport_channel"`
-	TransportPacketSHA256           string `json:"transport_packet_sha256"`
-	TransportPacketLength           int    `json:"transport_packet_length"`
-	TransportPreStartSHA256         string `json:"transport_pre_start_sha256"`
-	TransportPreStartLength         int    `json:"transport_pre_start_length"`
-	TransportPostEndSHA256          string `json:"transport_post_end_sha256"`
-	TransportPostEndLength          int    `json:"transport_post_end_length"`
-	TransportReference              string `json:"transport_reference"`
-	TransportSnapshotCWD            string `json:"transport_snapshot_cwd"`
-	EffectiveEnvironmentSHA256      string `json:"effective_environment_sha256"`
+	TerminalRuntimeExecutable       string                    `json:"terminal_runtime_executable,omitempty"`
+	TerminalRuntimeExecutableSHA256 string                    `json:"terminal_runtime_executable_sha256,omitempty"`
+	TerminalRuntimeVersion          string                    `json:"terminal_runtime_version,omitempty"`
+	TerminalRuntimePolicyIdentity   string                    `json:"terminal_runtime_policy_identity,omitempty"`
+	TerminalRuntimeGeneration       int                       `json:"terminal_runtime_generation,omitempty"`
+	ZCodePreparation                *ZCodeTerminalObservation `json:"zcode_preparation,omitempty"`
+	Family                          string                    `json:"family"`
+	ProviderInstance                string                    `json:"provider_instance"`
+	ProviderVersion                 string                    `json:"provider_version"`
+	ObservedVersion                 string                    `json:"observed_version"`
+	Executable                      string                    `json:"executable"`
+	ExecutableSHA256                string                    `json:"executable_sha256"`
+	Launcher                        string                    `json:"launcher"`
+	LauncherSHA256                  string                    `json:"launcher_sha256"`
+	ApplicationVersion              string                    `json:"application_version,omitempty"`
+	ApplicationMetadata             string                    `json:"application_metadata,omitempty"`
+	ApplicationMetadataSHA256       string                    `json:"application_metadata_sha256,omitempty"`
+	ZCodeProviderConfig             string                    `json:"zcode_provider_config,omitempty"`
+	ZCodeProviderConfigSHA256       string                    `json:"zcode_provider_config_sha256,omitempty"`
+	ProfileID                       string                    `json:"profile_id"`
+	ProfileGeneration               string                    `json:"profile_generation"`
+	NamespaceGeneration             string                    `json:"namespace_generation"`
+	Role                            string                    `json:"role"`
+	SnapshotManifestSHA256          string                    `json:"snapshot_manifest_sha256"`
+	SnapshotName                    string                    `json:"snapshot_name"`
+	SnapshotPath                    string                    `json:"snapshot_path"`
+	SnapshotPolicyIdentity          string                    `json:"snapshot_policy_identity"`
+	SnapshotDevice                  uint64                    `json:"snapshot_device"`
+	SnapshotInode                   uint64                    `json:"snapshot_inode"`
+	RootDevice                      uint64                    `json:"root_device"`
+	RootInode                       uint64                    `json:"root_inode"`
+	ArgvSHA256                      string                    `json:"argv_sha256"`
+	NativeReference                 string                    `json:"native_reference"`
+	OutputSHA256                    string                    `json:"output_sha256"`
+	Termination                     string                    `json:"termination"`
+	HasExitCode                     bool                      `json:"has_exit_code"`
+	ExitCode                        int                       `json:"exit_code"`
+	HasSignal                       bool                      `json:"has_signal"`
+	SignalNumber                    int                       `json:"signal_number"`
+	SignalName                      string                    `json:"signal_name"`
+	TransportChannel                string                    `json:"transport_channel"`
+	TransportPacketSHA256           string                    `json:"transport_packet_sha256"`
+	TransportPacketLength           int                       `json:"transport_packet_length"`
+	TransportPreStartSHA256         string                    `json:"transport_pre_start_sha256"`
+	TransportPreStartLength         int                       `json:"transport_pre_start_length"`
+	TransportPostEndSHA256          string                    `json:"transport_post_end_sha256"`
+	TransportPostEndLength          int                       `json:"transport_post_end_length"`
+	TransportReference              string                    `json:"transport_reference"`
+	TransportSnapshotCWD            string                    `json:"transport_snapshot_cwd"`
+	EffectiveEnvironmentSHA256      string                    `json:"effective_environment_sha256"`
 }
 
 type currentProbeDirectExecutionAuthorityContract struct {
@@ -187,7 +189,7 @@ func validatedDisposableNamespaceEnvironment(environment []ports.EnvironmentVari
 	}
 	// Temp state either stays inside the namespace root or, for ZCode
 	// namespaces, moves to the short shared runtime directory their
-	// app-server sockets require. All three temp variables must agree.
+	// Desktop bridge sockets require. All three temp variables must agree.
 	namespaceTemp := filepath.Join(root, "tmp")
 	switch paths["TMPDIR"] {
 	case namespaceTemp:
@@ -279,12 +281,35 @@ func newCurrentProbeDirectExecutionRoleProofWithEvidence(definition RuntimeDefin
 		return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: invalid direct execution")
 	}
 	var terminalExec, terminalSHA, terminalVersion, terminalPolicyID string
+	var zcodePreparation *ZCodeTerminalObservation
 	isTerminalChannel := definition.Transport().Channel() == ports.ProviderPacketChannelTerminal
 	if definition.Family() == FamilyGrok || isTerminalChannel {
 		if !observation.TerminalSessionCompleted() || !terminalIdentity.Valid() || len(stagedOutput) == 0 {
 			return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: missing terminal runtime identity or staged output")
 		}
-		terminalPolicy, policyErr := RuntimeSafetyPolicyForGrokTerminal(terminalIdentity)
+		var terminalPolicy RuntimeSafetyPolicy
+		var policyErr error
+		if definition.Family() == FamilyZcode {
+			retained, ok := namespace.(interface{ concreteNamespace() *namespaceLease })
+			if !ok || retained.concreteNamespace() == nil {
+				return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: missing ZCode namespace")
+			}
+			lease := retained.concreteNamespace()
+			lease.policyMu.RLock()
+			prepared, runtime := lease.zcodePrepared, lease.zcodeTerminal
+			lease.policyMu.RUnlock()
+			if runtime != terminalIdentity {
+				return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: ZCode runtime drift")
+			}
+			profile, err := zcodeProfileForDefinition(definition)
+			if err != nil {
+				return currentProbeDirectExecutionRoleProof{}, err
+			}
+			terminalPolicy, policyErr = RuntimeSafetyPolicyForZCodeTerminal(runtime, profile.pkg, profile.appBundle, prepared, definition.ZCodeModel(), definition.ZCodeReasoningEffort())
+			zcodePreparation = &prepared
+		} else {
+			terminalPolicy, policyErr = RuntimeSafetyPolicyForGrokTerminal(terminalIdentity)
+		}
 		if policyErr != nil {
 			return currentProbeDirectExecutionRoleProof{}, fmt.Errorf("current probe direct execution proof: %w", policyErr)
 		}
@@ -308,6 +333,8 @@ func newCurrentProbeDirectExecutionRoleProofWithEvidence(definition RuntimeDefin
 		TerminalRuntimeExecutableSHA256: terminalSHA,
 		TerminalRuntimeVersion:          terminalVersion,
 		TerminalRuntimePolicyIdentity:   terminalPolicyID,
+		TerminalRuntimeGeneration:       terminalIdentity.Generation(),
+		ZCodePreparation:                zcodePreparation,
 		Family:                          definition.Family(), ProviderInstance: definition.Instance(), ProviderVersion: definition.Version(), ObservedVersion: observedVersion,
 		Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(), Launcher: definition.Launcher(), LauncherSHA256: definition.LauncherSHA256(),
 		ApplicationVersion: definition.ApplicationVersion(), ApplicationMetadata: definition.ApplicationMetadata(), ApplicationMetadataSHA256: definition.ApplicationMetadataSHA256(),
@@ -389,20 +416,15 @@ func currentProbeDirectExecutionAuthorityID(proofs []currentProbeDirectExecution
 			return "", fmt.Errorf("current probe direct-execution authority: invalid or replayed role proof")
 		}
 		if proof.Family == FamilyZcode {
-			if !validCanonicalAbsolute(proof.ZCodeProviderConfig) || !validSHA256Identity(proof.ZCodeProviderConfigSHA256) ||
-				proof.ApplicationVersion == "" || !validCanonicalAbsolute(proof.ApplicationMetadata) || !validSHA256Identity(proof.ApplicationMetadataSHA256) {
-				return "", fmt.Errorf("current probe direct-execution authority: invalid ZCode provider config proof")
+			if proof.ZCodePreparation == nil || !proof.ZCodePreparation.valid() || proof.ApplicationVersion != proof.ZCodePreparation.AppVersion {
+				return "", fmt.Errorf("current probe direct-execution authority: invalid ZCode preparation proof")
 			}
-		} else if proof.ZCodeProviderConfig != "" || proof.ZCodeProviderConfigSHA256 != "" || proof.ApplicationVersion != "" || proof.ApplicationMetadata != "" || proof.ApplicationMetadataSHA256 != "" {
-			return "", fmt.Errorf("current probe direct-execution authority: provider config proof family mismatch")
+		} else if proof.ZCodePreparation != nil || proof.ApplicationVersion != "" {
+			return "", fmt.Errorf("current probe direct-execution authority: unexpected ZCode preparation proof")
 		}
-		if proof.Family == FamilyGrok {
-			if !validCanonicalAbsolute(proof.TerminalRuntimeExecutable) || !validSHA256Identity(proof.TerminalRuntimeExecutableSHA256) ||
-				proof.TerminalRuntimeVersion == "" || !validSHA256Identity(proof.TerminalRuntimePolicyIdentity) {
-				return "", fmt.Errorf("current probe direct-execution authority: invalid Grok terminal runtime proof")
-			}
-		} else if proof.TerminalRuntimeExecutable != "" || proof.TerminalRuntimeExecutableSHA256 != "" || proof.TerminalRuntimeVersion != "" || proof.TerminalRuntimePolicyIdentity != "" {
-			return "", fmt.Errorf("current probe direct-execution authority: terminal runtime proof family mismatch")
+		if !validCanonicalAbsolute(proof.TerminalRuntimeExecutable) || !validSHA256Identity(proof.TerminalRuntimeExecutableSHA256) ||
+			proof.TerminalRuntimeVersion == "" || proof.TerminalRuntimeGeneration < 1 || !validSHA256Identity(proof.TerminalRuntimePolicyIdentity) {
+			return "", fmt.Errorf("current probe direct-execution authority: invalid terminal runtime proof")
 		}
 		if proof.NativeReference == "" || !strings.HasPrefix(proof.NativeReference, "@") ||
 			!validRelativeNativeReference(strings.TrimPrefix(proof.NativeReference, "@")) {

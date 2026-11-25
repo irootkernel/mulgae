@@ -143,10 +143,6 @@ test-e2e:
 	zcode_app="$${MULGAE_E2E_ZCODE_APP_BUNDLE:-/Applications/ZCode.app}"; \
 	test -d "$$zcode_app" || { echo "test-e2e requires the ZCode app bundle" >&2; exit 1; }; \
 	case "$$zcode_app" in /*) ;; *) echo "test-e2e requires an absolute ZCode app bundle" >&2; exit 1;; esac; \
-	zcode_executable="$$zcode_app/Contents/MacOS/ZCode"; \
-	test -x "$$zcode_executable" || { echo "test-e2e requires the ZCode app runtime" >&2; exit 1; }; \
-	zcode_launcher="$$zcode_app/Contents/Resources/glm/zcode.cjs"; \
-	test -f "$$zcode_launcher" && test -r "$$zcode_launcher" || { echo "test-e2e requires the ZCode launcher" >&2; exit 1; }; \
 	if MULGAE_E2E_BINARY="$$MULGAE_E2E_BINARY" MULGAE_E2E_PROJECT_ROOT="$$e2e_project" \
 		MULGAE_E2E_ZCODE_APP_BUNDLE="$$zcode_app" \
 		$(GO) test -v -tags=live_e2e -timeout $(TEST_TIMEOUT) -count=1 \
@@ -159,7 +155,7 @@ test-e2e:
 	fi; \
 	MULGAE_LIVE_ZCODE_APP_BUNDLE="$$zcode_app" \
 		$(GO) test -v -tags=liveprovider -timeout $(TEST_TIMEOUT) -count=1 \
-		-run '^TestLiveZCodeCapability(CipherFixtures)?$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
+		-run '^TestLiveZCodeCapability$$|^TestLiveCapability(FailureEvidenceIsPrivateAndScreened|MismatchGuidanceDoesNotInventRootCause)$$' ./internal/adapters/providercli || { \
 		status=$$?; \
 		printf '%s\n' "[test-e2e] failed; preserved private project: $$e2e_project" >&2; \
 		exit $$status; \

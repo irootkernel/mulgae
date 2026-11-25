@@ -72,6 +72,8 @@ func TestDeriveEquivalentRouteZCodeRejectsProfileMismatches(t *testing.T) {
 		{name: "zcode_provider_config", mutate: func(d *RuntimeDefinition) { d.zcodeProviderConfig = "/private/config/other.json" }},
 		{name: "zcode_provider_config_sha256", mutate: func(d *RuntimeDefinition) { d.zcodeProviderConfigSHA256 = "sha256:" + repeatHex('f') }},
 		{name: "application_version", mutate: func(d *RuntimeDefinition) { d.applicationVersion = "3.19.0" }},
+		{name: "companion_package", mutate: func(d *RuntimeDefinition) { d.zcodeCompanion.PackageSHA256 = repeatHex('e') }},
+		{name: "companion_bundle_omission", mutate: func(d *RuntimeDefinition) { d.zcodeCompanion.BundleOverride = d.zcodeCompanion.AppBundle }},
 		{name: "application_metadata", mutate: func(d *RuntimeDefinition) { d.applicationMetadata = "/Applications/OtherZCode.app/Contents/Info.plist" }},
 		{name: "application_metadata_sha256", mutate: func(d *RuntimeDefinition) { d.applicationMetadataSHA256 = "sha256:" + repeatHex('e') }},
 		{name: "executable", mutate: func(d *RuntimeDefinition) { d.executable = "/private/bin/other-node" }},

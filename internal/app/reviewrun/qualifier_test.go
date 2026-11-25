@@ -127,6 +127,67 @@ type qualifierRegistrySequenceFactory struct {
 	calls      int
 }
 
+type failingBindingRegistry struct {
+	qualifierRegistryFactory
+	cause error
+}
+
+func (factory failingBindingRegistry) NewProviderQualificationRegistry(ctx context.Context, definitions []ports.ProviderRuntimeDefinition) (ports.ProviderQualificationRegistry, error) {
+	_, err := factory.qualifierRegistryFactory.NewProviderQualificationRegistry(ctx, definitions)
+	return failingQualificationBinding{qualifierRegistry: factory.registry, cause: factory.cause}, err
+}
+
+type failingQualificationBinding struct {
+	*qualifierRegistry
+	cause error
+}
+
+func (registry failingQualificationBinding) BindProviderQualification(ports.ProviderRuntimeDefinition, ports.ProviderDirectExecutionAuthority, string, []domain.Role) error {
+	return registry.cause
+}
+
+func TestQualificationBindingRetainsSecurityFailureAndCleanup(t *testing.T) {
+	for _, blocked := range []bool{false, true} {
+		t.Run(map[bool]string{false: "drained", true: "retained"}[blocked], func(t *testing.T) {
+			now := time.Unix(1_700_000_000, 0).UTC()
+			candidate := authorityCandidateForFamilyRole(t, FamilyZCode, domain.RoleLogic)
+			instance := candidate.Definition.Instance()
+			registry := guardRegistry(t, instance, candidate.Definition.RuntimeSafetyPolicyIdentity())
+			if blocked {
+				registry.closeErrs = []error{errors.New("first drain failed"), errors.New("second drain failed")}
+			}
+			cause, _ := ports.NewProviderRuntimeError(domain.DiagnosticCauseWorkspaceRevalidationFailed, errors.New("terminal qualification identity drift"))
+			typed, _ := domain.NewFailure("binding", domain.FailureSecurityPolicy, "qualification identity drift", cause)
+			factory, err := NewQualifiedRunFactory(CurrentQualifierFunc(func(_ context.Context, request CurrentQualificationRequest) (CurrentQualificationResult, error) {
+				return syntheticFamilyQualificationResult(t, request, now), nil
+			}), failingBindingRegistry{qualifierRegistryFactory{registry: registry}, typed}, qualifierClock{now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := factory.NewQualifiedRun(t.Context(), []QualifiedRunCandidate{candidate})
+			var failure *domain.Failure
+			if run != nil || !errors.As(err, &failure) || failure.Class() != domain.FailureSecurityPolicy ||
+				qualificationDiagnosticCause(err) != domain.DiagnosticCauseWorkspaceRevalidationFailed || !errors.Is(err, cause) {
+				t.Fatalf("qualification binding lost security failure: %v", err)
+			}
+			receipt, drained := ProviderRunTerminalReceiptFromError(err)
+			if !blocked {
+				if !drained || !receipt.Valid() || registry.closed != 1 {
+					t.Fatalf("binding did not prove drain: %v, close calls=%d", drained, registry.closed)
+				}
+				return
+			}
+			owner, retained := QualifiedRunRegistryFromError(err)
+			if drained || !retained || registry.closed != 2 {
+				t.Fatalf("binding lost uncertain cleanup authority: drained=%t retained=%t closes=%d", drained, retained, registry.closed)
+			}
+			if receipt, err := owner.Close(t.Context()); err != nil || !receipt.Valid() {
+				t.Fatalf("retained cleanup authority could not drain: %v", err)
+			}
+		})
+	}
+}
+
 func (factory *qualifierRegistrySequenceFactory) NewProviderQualificationRegistry(_ context.Context, _ []ports.ProviderRuntimeDefinition) (ports.ProviderQualificationRegistry, error) {
 	if factory.calls >= len(factory.registries) {
 		return nil, errors.New("unexpected registry construction")

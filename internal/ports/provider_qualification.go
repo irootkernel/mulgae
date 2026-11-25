@@ -60,6 +60,7 @@ type ProviderRuntimeSpec struct {
 	RuntimeSafetyPolicyIdentity string
 	ZCodeModel                  string
 	ZCodeReasoningEffort        string
+	ZCodeCompanion              ZCodeCompanionObservation
 	GrokModel                   string
 	GrokReasoningEffort         string
 	BaseArgv                    []string
@@ -71,6 +72,12 @@ type ProviderRuntimeSpec struct {
 	Timeout                     time.Duration
 	PostOutputLifecycle         BoundedPostOutputLifecycle
 	HasPostOutputLifecycle      bool
+}
+
+// ProviderQualificationBinder admits observation-dependent configuration to
+// the registry that owns the exact qualified namespace.
+type ProviderQualificationBinder interface {
+	BindProviderQualification(ProviderRuntimeDefinition, ProviderDirectExecutionAuthority, string, []domain.Role) error
 }
 
 // ProviderRuntimeBuilder owns adapter-specific runtime-policy lookup and

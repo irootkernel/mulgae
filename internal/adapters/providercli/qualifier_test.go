@@ -476,13 +476,8 @@ func currentProbeDefinitionWithExecutionIdentity(definition RuntimeDefinition) R
 	definition.launcher = definition.Executable()
 	definition.launcherSHA256 = definition.ExecutableSHA256()
 	if definition.Family() == FamilyZcode {
-		definition.zcodeProviderConfig = "/private/config/zcode-builtin.json"
-		definition.zcodeProviderConfigSHA256 = "sha256:" + strings.Repeat("a", 64)
-		definition.applicationVersion = "3.12.3"
-		definition.applicationMetadata = "/Applications/ZCode.app/Contents/Info.plist"
-		definition.applicationMetadataSHA256 = "sha256:" + strings.Repeat("b", 64)
-		providerConfig, _ := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", definition.zcodeProviderConfig)
-		definition.environment = append(definition.environment, providerConfig)
+		definition.applicationVersion = "4.0.0"
+
 	}
 	return definition
 }
@@ -496,6 +491,13 @@ func currentProbeDefinitionWithExecutionIdentity(definition RuntimeDefinition) R
 // decision D1 requires for a fixture-binding rejection: an operational
 // invalid-output failure at the "capability" stage carrying the observation-
 // mismatch diagnostic cause, explicitly not a security-policy violation.
+func requireProviderDiagnosticCause(t *testing.T, err error, want domain.RuntimeDiagnosticCause) {
+	t.Helper()
+	if got, ok := providerDiagnosticCause(err); !ok || got != want {
+		t.Fatalf("diagnostic cause = %s, want %s: %v", got, want, err)
+	}
+}
+
 func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 	t.Helper()
 	var failure *domain.Failure
@@ -506,77 +508,6 @@ func requireOperationalCapabilityMismatch(t *testing.T, err error) {
 		t.Fatalf("capability evidence mismatch was classified as a security failure: %v", err)
 	}
 	requireProviderDiagnosticCause(t, err, domain.DiagnosticCauseObservationMismatch)
-}
-
-func TestZCodeCapabilityUsesProtocolTransport(t *testing.T) {
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := newTestProfileWithTransport(t, FamilyZcode, "zcode_current", []string{"/private/bin/zcode"}, transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packet, err := ports.NewProviderPacketFromBytes([]byte("fixture packet"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv := appendZcodeProtocolServerArgv(definition.BaseArgv())
-	binding, err := ports.NewProtocolProviderPacketBinding(packet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, nil, "/private/work", binding, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(request.Stdin()) != 0 || packetOccurrences(request.Argv(), string(packet.Bytes())) != 0 {
-		t.Fatalf("ZCode capability packet binding = argv %q stdin %q", request.Argv(), request.Stdin())
-	}
-}
-
-func TestCurrentProbeReleasesProtocolTranscript(t *testing.T) {
-	root, identity := testWorkspaceRoot(t)
-	fixture := &currentProbeFixture{root: root, identity: identity, role: domain.RoleLogic}
-	observation, lease := observationWithTrackingLease(t, currentProbeCapabilityProtocolObservation(t, fixture, []byte("protocol transcript")))
-	runner := &currentProbeRunner{observations: []ports.ProcessObservation{observation}, protocol: newScriptedProtocolExchange(
-		protocolCreateResult,
-		protocolSendAck,
-		protocolTurnDone,
-		protocolMessagesResult(`{"root":"nonce","link":"linked","role":"logic"}`),
-		protocolCloseResult,
-	)}
-	verifier := &currentProbeVerifier{}
-	probe, err := NewCurrentProbe(runner, verifier)
-	if err != nil {
-		t.Fatal(err)
-	}
-	transport, err := NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := newTestProfileWithTransport(t, FamilyZcode, "zcode_current", []string{"/private/bin/zcode"}, transport)
-	if err != nil {
-		t.Fatal(err)
-	}
-	packet, err := ports.NewProviderPacketFromBytes(fixture.Packet())
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv := appendZcodeProtocolServerArgv(definition.BaseArgv())
-	if _, _, _, _, _, err := probe.runBound(context.Background(), definition, currentProbeNamespace{instance: "zcode_current"}, fixture, argv, nil, time.Second, &packet, ""); err != nil {
-		t.Fatal(err)
-	}
-	if lease.closes != 1 {
-		t.Fatalf("protocol transcript closes = %d, want 1", lease.closes)
-	}
-}
-
-func requireProviderDiagnosticCause(t *testing.T, err error, want domain.RuntimeDiagnosticCause) {
-	t.Helper()
-	if cause, ok := providerDiagnosticCause(err); !ok || cause != want {
-		t.Fatalf("provider diagnostic cause = %q, present=%t, want %q; err=%v", cause, ok, want, err)
-	}
 }
 
 func TestControlledProbeJSONAcceptsExactOrSingleJSONFence(t *testing.T) {
@@ -624,6 +555,12 @@ func TestCurrentProbeEnvironmentReceiptEvidenceBindsNamespaceGeneration(t *testi
 func currentProbeAuthorityForDefinition(t *testing.T) (RuntimeDefinition, CurrentProbeDirectExecutionAuthorityReceipt) {
 	t.Helper()
 	definition := currentProbeDefinitionWithExecutionIdentity(testProfile(t, FamilyZcode, "zcode_current", "", ""))
+	definition.executableSHA256 = "sha256:" + repeatHex('a')
+	definition.launcherSHA256 = definition.executableSHA256
+	definition.zcodeCompanion = ports.ZCodeCompanionObservation{
+		Executable: definition.Executable(), ExecutableSHA256: definition.ExecutableSHA256(), PackageSHA256: repeatHex('b'),
+		Version: "0.2.0", AppVersion: definition.ApplicationVersion(), AppBundle: "/Applications/ZCode.app", MinimumAppVersion: "3.18.2",
+	}
 	proof := currentProbeDirectExecutionTestProof()
 	proof.Family = definition.Family()
 	proof.ProviderInstance = definition.Instance()
@@ -802,7 +739,7 @@ func TestQualificationProcessFailurePreservesExactProcessCause(t *testing.T) {
 	)
 }
 
-func TestQualificationProcessFailurePreservesZCodeProtocolCause(t *testing.T) {
+func TestQualificationProcessFailurePreservesZCodeTerminalCause(t *testing.T) {
 	observation := testProcessObservation(t, nil, nil, ports.ProcessTerminationExited, 1)
 	for _, test := range []struct {
 		cause domain.RuntimeDiagnosticCause
@@ -811,7 +748,7 @@ func TestQualificationProcessFailurePreservesZCodeProtocolCause(t *testing.T) {
 		{domain.DiagnosticCauseOutputDecodeFailed, domain.FailureInvalidOutput},
 		{domain.DiagnosticCauseProviderTurnFailed, domain.FailureProviderUnavailable},
 	} {
-		err := qualificationProcessFailure(FamilyZcode, observation, zcodeProtocolFailure(test.cause, errors.New("zcode turn failed")))
+		err := qualificationProcessFailure(FamilyZcode, observation, providerRuntimeFailure(test.cause, errors.New("zcode turn failed")))
 		requireProviderDiagnosticCause(t, err, test.cause)
 		classified := classifyProbeFailure(context.Background(), FamilyZcode, err, nil)
 		var failure *domain.Failure

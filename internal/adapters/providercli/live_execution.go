@@ -44,153 +44,8 @@ func liveGitEnvironment(binding ports.ProjectBindingObservation) ([]ports.Enviro
 	return variables, nil
 }
 
-func liveReviewArgv(definition definition) ([]string, error) {
-	if definition.transport.channel != ports.ProviderPacketChannelProtocol {
-		return nil, fmt.Errorf("live execution requires a native protocol")
-	}
-	base := append([]string(nil), definition.baseArgv...)
-	switch definition.family {
-	case FamilyZcode:
-		return appendZcodeProtocolServerArgv(base), nil
-	default:
-		return nil, fmt.Errorf("unsupported live provider family")
-	}
-}
-
-func (r *Registry) runInLiveSource(ctx context.Context, definition definition, invocation ports.ProviderInvocation, execution ports.LiveReviewExecution, packet ports.ProviderPacket, namespace ports.ProviderNamespaceLease) (observation ports.ProcessObservation, report []byte, err error) {
-	if definition.transport.channel == ports.ProviderPacketChannelTerminal {
-		return r.runInLiveTerminal(ctx, definition, invocation, execution, packet, namespace)
-	}
-	fail := func(cause error) error {
-		return providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, fmt.Errorf("provider registry: live execution boundary: %w", cause))
-	}
-	if err := execution.Revalidate(ctx); err != nil {
-		return observation, nil, fail(err)
-	}
-	defer func() {
-		// Cancellation ends provider work, but must not masquerade as a changed
-		// filesystem boundary during the independent terminal integrity check.
-		if postErr := execution.Revalidate(context.WithoutCancel(ctx)); postErr != nil {
-			report = nil
-			err = fail(postErr)
-		}
-	}()
-	if definition.family == FamilyZcode {
-		concrete, ok := namespace.(*namespaceLease)
-		if !ok {
-			return observation, nil, fail(fmt.Errorf("missing ZCode namespace authority"))
-		}
-		if _, err := concrete.liveRuntimeTempRoot(); err != nil {
-			return observation, nil, fail(err)
-		}
-		defer func() {
-			if _, postErr := concrete.liveRuntimeTempRoot(); postErr != nil {
-				report, err = nil, fail(postErr)
-			}
-		}()
-	}
-	gitEnvironment, err := liveGitEnvironment(execution.Binding())
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	configured := make([]ports.EnvironmentVariable, 0, len(definition.environment)+len(gitEnvironment))
-	for _, variable := range definition.environment {
-		if variable.Name() != "PATH" && variable.Name() != "PWD" && variable.Name() != "PAGER" && !strings.HasPrefix(variable.Name(), "GIT_") {
-			configured = append(configured, variable)
-		}
-	}
-	configured = append(configured, gitEnvironment...)
-	environment, err := isolatedProcessEnvironment(definition.family, configured, namespace.Environment())
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	extraction := invocation.Purpose() == ports.ProviderInvocationExtract
-	argv, err := liveReviewArgv(definition)
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	binding, err := ports.NewProtocolProviderPacketBinding(packet)
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	request, err := ports.NewProviderProtocolProcessRequest(definition.executable, argv, environment, execution.ReviewerHome().Root().String(), binding, definition.timeout)
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	configuration, err := protocolConfigurationForNamespace(ctx, RuntimeDefinition(definition), namespace)
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	if definition.family == FamilyZcode && !extraction {
-		scope := execution.Target().Selector().Scope()
-		if !scope.Valid() {
-			return observation, nil, fail(fmt.Errorf("invalid live source scope"))
-		}
-		configuration.liveSourceScope = scope
-	}
-	purpose := protocolPurposeLiveReview
-	if extraction {
-		purpose = protocolPurposeLiveExtraction
-	}
-	if definition.family == FamilyZcode {
-		concrete, ok := namespace.(*namespaceLease)
-		if !ok {
-			return observation, nil, fail(fmt.Errorf("missing native namespace authority"))
-		}
-		writable, err := ports.NewAnchoredRoot(concrete.root)
-		if err != nil {
-			return observation, nil, fail(err)
-		}
-		roots := []ports.AnchoredRoot{execution.Binding().Root, execution.ReviewerHome().Root()}
-		for _, root := range []ports.AnchoredRoot{execution.Binding().GitDirectory, execution.Binding().CommonDirectory} {
-			if root.Valid() {
-				roots = append(roots, root)
-			}
-		}
-		runtimeTemp, runtimeErr := concrete.liveRuntimeTempRoot()
-		if runtimeErr != nil {
-			return observation, nil, fail(runtimeErr)
-		}
-		boundary, err := ports.NewLiveReadOnlyBoundaryWithRuntimeTemp(roots, execution.CredentialRoots(), writable, runtimeTemp)
-		if err != nil {
-			return observation, nil, fail(err)
-		}
-		cpRoots, cpLiterals, cpErr := liveExecutionControlPlanePaths(execution)
-		if cpErr != nil {
-			return observation, nil, fail(cpErr)
-		}
-		if len(cpRoots) > 0 || len(cpLiterals) > 0 {
-			boundary, err = ports.NewLiveReadOnlyBoundaryWithControlPlane(boundary, cpRoots, cpLiterals)
-			if err != nil {
-				return observation, nil, fail(err)
-			}
-		}
-		request, err = ports.NewLiveReadOnlyProcessRequest(request, boundary)
-		if err != nil {
-			return observation, nil, fail(err)
-		}
-	}
-	if definition.requiresSpawnVerification {
-		if r.spawnVerifier == nil {
-			return observation, nil, fail(fmt.Errorf("missing spawn verifier"))
-		}
-		if err := r.spawnVerifier.VerifyProviderSpawn(ctx, RuntimeDefinition(definition)); err != nil {
-			return observation, nil, spawnRevalidationFailure("live spawn revalidation", err)
-		}
-	}
-	if err := namespace.ValidateForSpawn(); err != nil {
-		return observation, nil, fail(err)
-	}
-	launch, err := execution.ReviewerHome().DuplicateLaunchDirectory()
-	if err != nil {
-		return observation, nil, fail(err)
-	}
-	request, err = ports.NewNeutralBoundProcessRequest(request, execution.ReviewerHome().Root(), launch)
-	if err != nil {
-		_ = launch.Close()
-		return observation, nil, fail(err)
-	}
-	return r.executeProtocolProviderProcess(ctx, definition, packet, request, purpose, nil, configuration)
+func (r *Registry) runInLiveSource(ctx context.Context, definition definition, invocation ports.ProviderInvocation, execution ports.LiveReviewExecution, packet ports.ProviderPacket, namespace ports.ProviderNamespaceLease) (ports.ProcessObservation, []byte, error) {
+	return r.runInLiveTerminal(ctx, definition, invocation, execution, packet, namespace)
 }
 
 func (lease *namespaceLease) liveRuntimeTempRoot() (ports.AnchoredRoot, error) {
@@ -261,8 +116,25 @@ func (r *Registry) runInLiveTerminal(
 		return observation, nil, fail(fmt.Errorf("missing native namespace authority"))
 	}
 
+	profile := authority.terminalProfile
+	var zcodeRuntime ports.TerminalRuntimeIdentity
 	nativeHomePath := concrete.grokRuntimeHome
-	if !validCanonicalAbsolute(nativeHomePath) {
+	if definition.family == FamilyZcode {
+		concrete.policyMu.RLock()
+		prepared, runtime, qualified := concrete.zcodePrepared, concrete.zcodeTerminal, concrete.zcodeQualified
+		concrete.policyMu.RUnlock()
+		if !concrete.managedParent.Valid() || !qualified || !prepared.valid() || !runtime.Valid() {
+			return observation, nil, fail(fmt.Errorf("missing qualified ZCode terminal authority"))
+		}
+		zcodeRuntime = runtime
+		zcodeProfile, profileErr := zcodeProfileForDefinition(RuntimeDefinition(definition))
+		if profileErr != nil {
+			return observation, nil, profileErr
+		}
+		zcodeProfile.expected = &prepared
+		profile = zcodeProfile
+		nativeHomePath = concrete.zcodeNativeHome
+	} else if !validCanonicalAbsolute(nativeHomePath) {
 		nativeHomePath = filepath.Dir(filepath.Dir(execution.ReviewerHome().Root().String()))
 	}
 	nativeHome, homeErr := ports.NewAnchoredRoot(nativeHomePath)
@@ -318,13 +190,15 @@ func (r *Registry) runInLiveTerminal(
 	}
 
 	r.terminalUsed.Store(true)
-	termRes, termErr := executeTerminalInvocation(ctx, r.terminalRunner, authority.terminalProfile, terminalDriverRequest{
+	termRes, termErr := executeTerminalInvocation(ctx, r.terminalRunner, profile, terminalDriverRequest{
 		Definition:           RuntimeDefinition(definition),
 		Purpose:              purpose,
 		LiveScope:            execution.Target().Selector().Scope(),
 		HasLiveScope:         true,
 		Packet:               packet,
+		Namespace:            concrete,
 		NamespaceRoot:        concrete.root,
+		ExpectedRuntime:      zcodeRuntime,
 		NamespaceEnvironment: namespace.Environment(),
 		ExtraEnvironment:     extraEnv,
 		NeutralCWD:           execution.ReviewerHome().Root(),
@@ -338,7 +212,7 @@ func (r *Registry) runInLiveTerminal(
 		Timeout:              definition.timeout,
 		RegistryGeneration:   r.terminalGeneration,
 	})
-	if termRes.RuntimeIdentity.Valid() {
+	if definition.family == FamilyGrok && termRes.RuntimeIdentity.Valid() {
 		if bindErr := concrete.bindGrokTerminalRuntimeIdentity(termRes.RuntimeIdentity); bindErr != nil {
 			return termRes.Process, nil, fail(bindErr)
 		}

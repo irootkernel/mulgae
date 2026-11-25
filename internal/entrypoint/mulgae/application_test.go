@@ -41,6 +41,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/testsupport/historical"
+	"github.com/irootkernel/mulgae/internal/testsupport/zcodefixture"
 )
 
 const (
@@ -81,6 +82,8 @@ func (validator *rejectOnceSchemaValidator) Validate(ctx context.Context, schema
 }
 
 type doctorIdentityInspector struct {
+	companionMissing  bool
+	companionErr      error
 	delegate          ports.EnvironmentInspector
 	executableErrors  map[string]error
 	executableMissing map[string]bool
@@ -131,9 +134,6 @@ func (inspector *doctorIdentityInspector) ObservePlatform(ctx context.Context) (
 func (inspector *doctorIdentityInspector) ObserveExecutable(ctx context.Context, name string) (ports.ExecutableObservation, error) {
 	return inspector.delegate.ObserveExecutable(ctx, name)
 }
-func (inspector *doctorIdentityInspector) ObserveApplicationMetadata(ctx context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	return inspector.delegate.ObserveApplicationMetadata(ctx, name)
-}
 func (inspector *doctorIdentityInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {
 	if inspector.executableMissing[name] {
 		return ports.NewExecutableObservation(name, false, "", "", "")
@@ -151,6 +151,12 @@ func (inspector *doctorIdentityInspector) ObserveReadableFileIdentity(ctx contex
 		return ports.FileIdentityObservation{}, err
 	}
 	return inspector.delegate.ObserveReadableFileIdentity(ctx, name)
+}
+func (inspector *doctorIdentityInspector) ObserveZCodeCompanion(ctx context.Context, bundle string, excluded ...string) (ports.ZCodeCompanionObservation, error) {
+	if inspector.companionErr != nil || inspector.companionMissing {
+		return ports.ZCodeCompanionObservation{}, inspector.companionErr
+	}
+	return inspector.delegate.(ports.ZCodeCompanionObserver).ObserveZCodeCompanion(ctx, bundle, excluded...)
 }
 func (inspector *doctorIdentityInspector) ObserveNativeHomeIdentity(ctx context.Context, path string) (ports.NativeHomeLaunchAuthority, error) {
 	inspector.nativeHomeCalls++
@@ -1613,29 +1619,30 @@ func testFoundationZCodeBundle(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zcodeBundle := filepath.Join(zcodeBundleRoot, "ZCode.app")
-	zcodeExecutable := filepath.Join(zcodeBundle, "Contents", "MacOS", "ZCode")
-	zcodeLauncher := filepath.Join(zcodeBundle, "Contents", "Resources", "glm", "zcode.cjs")
-	zcodeProviderConfig := filepath.Join(zcodeBundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
-	zcodeMetadata := filepath.Join(zcodeBundle, filepath.FromSlash(reviewrun.ZCodeApplicationMetadataRelativePath))
-	for _, directory := range []string{filepath.Dir(zcodeExecutable), filepath.Dir(zcodeLauncher), filepath.Dir(zcodeProviderConfig)} {
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(zcodeExecutable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	bundle, launcher, err := zcodefixture.Create(zcodeBundleRoot)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(zcodeLauncher, []byte("module.exports = {};\n"), 0o600); err != nil {
+	script := `#!/bin/sh
+set -eu
+[ "$2" = --json ] && [ "$3" = --app-bundle ] && [ "$4" = "` + bundle + `" ] || exit 2
+case "$1" in
+--version)
+	printf '%s\n' '{"name":"herdr-zcode","version":"0.2.0","runtimes":["core"],"osc7501":true,"capabilities":["core","osc7501","catalogFile","prepareIsolated","checkDesktop"]}'
+	;;
+--check-desktop)
+	printf '{"compatible":true,"appVersion":"4.0.0","appBundle":"%s","minZcodeAppVersion":"3.18.2"}\n' "$4"
+	;;
+*)
+	exit 2
+	;;
+esac
+`
+	if err := os.WriteFile(launcher, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(zcodeProviderConfig, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(zcodeMetadata, []byte(`<plist><dict><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return zcodeBundle
+	t.Setenv("MULGAE_HERDR_ZCODE_BIN", launcher)
+	return bundle
 }
 
 func TestApplicationDoctorUsesConfiguredFamiliesWithoutStaticAuthorityEvidence(t *testing.T) {
@@ -1771,36 +1778,8 @@ func TestApplicationDoctorFailsWhenOneConfiguredProviderIdentityIsUnavailable(t 
 }
 
 func TestApplicationDoctorReportsStableBinaryAvailabilityReasons(t *testing.T) {
-	zcodeBundleRoot, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	zcodeBundle := filepath.Join(zcodeBundleRoot, "ZCode.app")
-	zcodeExecutable := filepath.Join(zcodeBundle, "Contents", "MacOS", "ZCode")
-	zcodeLauncher := filepath.Join(zcodeBundle, "Contents", "Resources", "glm", "zcode.cjs")
-	zcodeProviderConfig := filepath.Join(zcodeBundle, filepath.FromSlash(reviewrun.ZCodeProviderConfigRelativePath))
-	zcodeMetadata := filepath.Join(zcodeBundle, filepath.FromSlash(reviewrun.ZCodeApplicationMetadataRelativePath))
-	if err := os.MkdirAll(filepath.Dir(zcodeExecutable), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(zcodeLauncher), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(zcodeProviderConfig), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(zcodeExecutable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(zcodeLauncher, []byte("module.exports = {};\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(zcodeProviderConfig, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(zcodeMetadata, []byte(`<plist><dict><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	zcodeBundle := testFoundationZCodeBundle(t)
+	zcodeArgs := []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}
 	tests := []struct {
 		name          string
 		initArguments []string
@@ -1818,41 +1797,18 @@ func TestApplicationDoctorReportsStableBinaryAvailabilityReasons(t *testing.T) {
 		{"executable observation failure", []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "executable observation failed")}}
 		}, 1, "provider_binary_observation_failed", app.ExitCodeReadiness},
-		{"missing zcode launcher", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileMissing: map[string]bool{zcodeLauncher: true}}
-		}, 0, "zcode_launcher_missing", app.ExitCodeReadiness},
-		{"unreadable zcode launcher", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{zcodeLauncher: ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonUnreadable, "launcher unreadable")}}
-		}, 0, "zcode_launcher_unreadable", app.ExitCodeReadiness},
-		{"zcode launcher observation failure", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{zcodeLauncher: ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "launcher observation failed")}}
-		}, 0, "zcode_launcher_observation_failed", app.ExitCodeReadiness},
-		{"missing zcode provider config", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileMissing: map[string]bool{zcodeProviderConfig: true}}
-		}, 0, "zcode_provider_config_missing", app.ExitCodeReadiness},
-		{"unreadable zcode provider config", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{zcodeProviderConfig: ports.NewIdentityObservationErrorWithReason(ports.IdentityObservationUnavailable, ports.IdentityObservationReasonUnreadable, "provider config unreadable")}}
-		}, 0, "zcode_provider_config_unreadable", app.ExitCodeReadiness},
-		{"zcode provider config observation failure", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{zcodeProviderConfig: ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "provider config observation failed")}}
-		}, 0, "zcode_provider_config_observation_failed", app.ExitCodeReadiness},
+		{"missing companion", zcodeArgs, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, companionMissing: true}
+		}, 0, "herdr_zcode_missing", app.ExitCodeReadiness},
+		{"companion diagnostic failed", zcodeArgs, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, companionErr: ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "diagnostic failed")}
+		}, 0, "herdr_zcode_observation_failed", app.ExitCodeReadiness},
 		{"unsafe executable identity", []string{"init", "--providers", "grok", "--grok-executable", "/bin/sh", "--output", "json"}, func(fixture *foundationFixture) {
 			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, executableErrors: map[string]error{"/bin/sh": ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "executable identity changed")}}
 		}, 1, "provider_executable_unsafe_identity", app.ExitCodeSecurity},
-		{"unsafe zcode launcher identity", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{zcodeLauncher: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "launcher identity changed")}}
-		}, 0, "zcode_launcher_unsafe_identity", app.ExitCodeSecurity},
-		{"unsafe zcode provider config identity", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, fileErrors: map[string]error{zcodeProviderConfig: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "provider config identity changed")}}
-		}, 0, "zcode_provider_config_unsafe_identity", app.ExitCodeSecurity},
-		{"unsafe zcode version identity outranks incompatible app", []string{"init", "--providers", "zcode", "--zcode-app-bundle", zcodeBundle, "--output", "json"}, func(fixture *foundationFixture) {
-			if err := os.WriteFile(zcodeMetadata, []byte(`<plist><dict><key>CFBundleShortVersionString</key><string>3.12.2</string></dict></plist>`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			fixture.application.versionObserver = doctorVersionObserverFunc(func(context.Context, string, []string, ports.ProviderVersionIdentity) (ports.ProviderVersionObservation, error) {
-				return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-			})
-		}, 0, "provider_cli_version_unsafe_identity", app.ExitCodeSecurity},
+		{"unsafe companion identity", zcodeArgs, func(fixture *foundationFixture) {
+			fixture.application.inspector = &doctorIdentityInspector{delegate: fixture.application.inspector, companionErr: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "companion changed")}
+		}, 0, "herdr_zcode_unsafe_identity", app.ExitCodeSecurity},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

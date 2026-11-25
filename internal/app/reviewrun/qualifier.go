@@ -473,6 +473,12 @@ func (factory *QualifiedRunFactory) admitFamilyQualificationGroup(ctx context.Co
 			}
 			return admission, providerQualificationBoundaryError(definition, cause, "qualification_invalid")
 		}
+		if binder, ok := admission.admitted[definition.Instance()].(ports.ProviderQualificationBinder); ok {
+			if bindErr := binder.BindProviderQualification(definition, result.familyAuthority, result.Version, supportedRoles); bindErr != nil {
+				// Let the run-level cleanup retain authority if a drain cannot be proved.
+				return admission, providerQualificationBoundaryError(definition, bindErr, qualificationReasonCode(bindErr, "qualification_failed"))
+			}
+		}
 		route, err := ports.NewProviderRoute(definition.Instance())
 		if err != nil {
 			releaseAll()
@@ -506,7 +512,7 @@ func validateQualifiedRunCandidate(candidate QualifiedRunCandidate, seen map[str
 		return fmt.Errorf("review run: invalid qualified run candidate: %w", err)
 	}
 	definition := candidate.Definition
-	if Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() || definition.ZCodeProviderConfig() != candidate.Profile.ZCodeProviderConfig() || definition.ZCodeProviderConfigSHA256() != candidate.Profile.ZCodeProviderConfigSHA256() || definition.ApplicationVersion() != candidate.Profile.ApplicationVersion() || definition.ApplicationMetadata() != candidate.Profile.ApplicationMetadata() || definition.ApplicationMetadataSHA256() != candidate.Profile.ApplicationMetadataSHA256() {
+	if !candidate.Profile.matchesCompanion(definition) || Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() || definition.ZCodeProviderConfig() != candidate.Profile.ZCodeProviderConfig() || definition.ZCodeProviderConfigSHA256() != candidate.Profile.ZCodeProviderConfigSHA256() || definition.ApplicationVersion() != candidate.Profile.ApplicationVersion() || definition.ApplicationMetadata() != candidate.Profile.ApplicationMetadata() || definition.ApplicationMetadataSHA256() != candidate.Profile.ApplicationMetadataSHA256() {
 		return fmt.Errorf("review run: discovered profile does not match production definition")
 	}
 	if _, duplicate := seen[definition.Instance()]; duplicate {

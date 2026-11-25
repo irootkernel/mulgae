@@ -638,13 +638,6 @@ func (inspector *FrozenInspector) ObserveReadableFileIdentity(ctx context.Contex
 	return observeReadableFileIdentity(ctx, name)
 }
 
-func (inspector *FrozenInspector) ObserveApplicationMetadata(ctx context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	if inspector == nil || inspector.environment == nil {
-		return ports.ApplicationMetadataObservation{}, errors.New("frozen application metadata observation unavailable")
-	}
-	return observeApplicationMetadata(ctx, name)
-}
-
 func (inspector *FrozenInspector) ObserveExecutableIdentity(ctx context.Context, name string) (ports.ExecutableObservation, error) {
 	if err := observationContext(ctx, "executable observation"); err != nil {
 		return ports.ExecutableObservation{}, err

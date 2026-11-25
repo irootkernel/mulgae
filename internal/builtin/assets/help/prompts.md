@@ -11,14 +11,13 @@ Git objects; they are not copied into an execution tree or full-source archive.
 Project context, objectives, accepted reports and provider candidates remain
 framed untrusted data. Attempts record prompt bytes and layer identities.
 
-Protocol providers return complete role reports as correlated assistant text.
-Terminal-runtime providers (Grok) read the exact prompt from a read-only
-(`0400`) staged `prompt.md` inside `<scratch>/input/` (with an adapter-owned
-delivery trailer appended strictly after the canonical prompt bytes) and write
-their output to a per-invocation staging directory that Mulgae validates
-strictly after `ESRCH`, strips its per-invocation completion nonce, and
-publishes under `result_transport: "stdout"`. Historical staging receipts
-retain their original meaning for inspection.
+ZCode and Grok read a read-only (`0400`) `prompt.md` under
+`<scratch>/input/`. The adapter appends the delivery trailer after the
+canonical prompt bytes. Each provider writes its output to its invocation's
+staging directory. After verified `ESRCH`, Mulgae checks the file and removes
+the completion nonce from the accepted report or extraction. It publishes
+the body under `result_transport: "stdout"`. Historical staging receipts keep
+their stored meaning.
 
 One constrained repair may change only the declared provider-owned fields.
 Optional structured extraction instead transcribes an accepted report on the

@@ -16,17 +16,16 @@ mulgae providers --include-unverified --output json
 mulgae doctor --output json
 ```
 
-Doctor may execute only the fixed offline version argv. Review qualification
-uses Mulgae-owned synthetic content and does not create durable certification.
+Doctor uses fixed offline compatibility commands and starts no terminal daemon.
+Review qualification uses Mulgae-owned synthetic content and creates no durable
+certification.
 A separate heartbeat requires explicit `--authorize-live-request` authority.
 
 Live review and extraction use original source reads from a neutral cwd:
 
-- ZCode uses its app-owned Electron runtime and app-server launcher. Complete
-  reports come from a correlated completed assistant turn. The app's v2 state
-  supplies the current Z.AI Individual Coding Plan account; legacy CLI config
-  is not the live authentication authority. ZCode supports all core text roles
-  and artist.
+- ZCode runs `herdr-zcode` through an isolated `herdr-core` terminal. The
+  current Desktop Z.AI Individual Coding Plan account supplies the private
+  invocation projection. ZCode supports all core text roles and artist.
 - Grok (`1.0.89` and newer) runs through an isolated Mulgae-owned `herdr-core`
   terminal runtime (`PaneTTY`, OSC 7501 readiness and turn state) inside the
   mandatory outer Seatbelt guard, with a disposable `HOME`, a disposable
@@ -37,18 +36,14 @@ Live review and extraction use original source reads from a neutral cwd:
   (`read_file,grep,list_dir,Write`), index and commit reviews add `Bash` under
   the five-control `B-1` Seatbelt and post-`ESRCH` stability/survivor gate, and
   structured extraction and qualification run shell-free (`read_file,Write`).
-  Prompts are staged read-only (`0400`) inside `<scratch>/input/` and outputs
-  are validated strictly after verified process-group absence (`ESRCH`) with a
-  mandatory per-invocation completion nonce before publication under
-  `result_transport: "stdout"`. `--version` and doctor readiness checks remain
-  offline and never start `herdr-core`. Grok supports text roles; artist
-  assignment fails capability admission.
+  Grok supports text roles. Artist assignment fails capability admission.
 
-Protocol providers (ZCode) return correlated assistant text directly;
-terminal-runtime providers (Grok) validate an invocation-scoped staged file
-strictly after verified process-group exit (`ESRCH`) and publish its accepted
-bytes under `result_transport: "stdout"`. Historical transport receipts remain
-unchanged. Process lifetime, protocol inputs and diagnostics are bounded;
-complete report content and provider stdout/stderr are unbounded. Provider
-network, authentication, quota and rate-limit effects remain the operator's
-provider outcomes. A new review after a failure requires authority.
+Both providers read prompts from `0400` files under `<scratch>/input/`.
+Mulgae validates the staged report or extraction file and its completion
+nonce after verified process-group absence (`ESRCH`). It publishes the accepted
+bytes under `result_transport: "stdout"`. Historical transport receipts keep
+their stored meaning. Mulgae bounds process lifetime, transport controls and
+diagnostic metadata. Complete reports and provider stdout and stderr have no
+product byte limit. Provider network, authentication, quota and rate-limit
+effects remain the operator's provider outcomes. A new review after a failure
+requires authority.

@@ -50,21 +50,16 @@ access.
 
 ## GATE-002: Provider protocol and live-source boundaries
 
-- **Invariant:** Protocol drivers accept only correlated, purpose-bound assistant
-  responses. Credential projection uses declared private sources, and live
-  execution preserves the neutral cwd and read-only source boundary.
-- **Scope:** `internal/adapters/providercli` native protocols and credentials;
-  `internal/adapters/process` descriptor, Seatbelt and terminal cleanup policy.
-- **Positive scenarios:** ZCode collects a
-  complete correlated report and omits tool-call narration only during structured
-  extraction, Grok enforces purpose-scoped terminal tools and the `B-1` Bash
-  gate alongside the declared live read plan, and private credential projection
-  remains bound to its selected family. Missing optional
-  credential homes remain protected if they appear after policy assembly.
-- **Failure scenarios:** Write authority, unexpected protocol requests, missing
-  own-turn completion, changed source or guide authority, descriptor replacement,
-  unsafe credential paths, hardlink aliases, and protected Unix sockets fail
-  closed. Cancellation and deadline failures retain their typed cause.
+- **Invariant:** Terminal profiles use purpose-scoped tools, stage output
+  inside the owned namespace, and preserve neutral cwd and read-only source.
+- **Scope:** `internal/adapters/providercli` terminal profiles and projection,
+  plus `internal/adapters/process` descriptor and Seatbelt boundaries.
+- **Positive scenarios:** Both providers retain source reads and route each
+  staged result to its bound invocation.
+- **Failure scenarios:** Changed launch bindings, stale account or catalog
+  identities, invalid completion nonces, sibling data reads and hard links,
+  and protected socket access fail closed. Cancellation and deadlines retain
+  their typed cause.
 - **Procedure:** Use a fresh mode-`0700` directory under the mounted writable
   `/Volumes/RootKernel/tmp`, or the normal system temporary directory when that
   volume is unavailable. Keep `HOME`, `TMPDIR`, and `GOCACHE` beneath it;
@@ -72,8 +67,8 @@ access.
   On native Apple Silicon macOS, run:
 
   ```sh
-  ./dev go test -v -count=1 ./internal/adapters/providercli -run '^(TestZCodeLiveProtocolCorrelatesOwnTurnAndCollectsCompleteReport|TestZCodeLiveExtractionKeepsToolsDisabled|TestZCodeExtractionOmitsToolCallNarration|TestZCodeNonExtractionPreservesToolCallNarration|TestZCodeExtractionRejectsMalformedFinish|TestZCodeLiveProtocolRejectsMissingOwnCompletionAndReport|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestLiveNeutralProtocolAdmissionClosesUnconsumedDescriptor|TestLiveRuntimeTempRejectsReplacementAndUnsafeDirectory|TestLiveTerminalRevalidationDiscardsChangedSourceAndGuide|TestCredentialSourceProjectsOnlyDeclaredFamilyFiles|TestGrokCredentialProjectionRejectsNonPrivateAuth)$'
-  ./dev go test -v -count=1 ./internal/adapters/process -run '^(TestLiveBoundaryDeniesWritesReadsAndAncestorRename|TestLiveBoundaryDeniesCredentialSymlinksToOutsideTargets|TestLiveBoundaryProtectsExoticCredentialPaths|TestLiveBoundaryRejectsSymlinkAndMissingRootsBeforeLaunch|TestLiveBoundaryRejectsPreexistingCredentialHardlink|TestLiveBoundaryDeniesProtectedUnixSockets|TestLiveBoundaryCredentialAdmissionHonorsCancellation|TestLiveBoundaryCredentialAdmissionHonorsDeadline|TestLiveBoundaryRejectsPreexistingWritableHardlink|TestLiveBoundaryRuntimeTempKeepsOverlappingRootsProtected|TestLiveNeutralLaunchRejectsWrongAndReplacedDescriptor|TestLiveBoundaryProtectsMissingOptionalCredentialHomes)$'
+  ./dev go test -v -count=1 ./internal/adapters/providercli -run '^(TestZCodeTerminalDriverOffline|TestZCodeTerminalProjectionBindsAndDrainsIndependentLeases|TestZCodeTerminalRunPreparationInterruptionProjection|TestLiveExecutionGuidePlanAndClosedGrokPermissions)$'
+  ./dev go test -v -count=1 ./internal/adapters/process -run '^(TestLiveBoundaryDeniesWritesReadsAndAncestorRename|TestLiveBoundaryDeniesCredentialSymlinksToOutsideTargets|TestLiveBoundaryProtectsExoticCredentialPaths|TestLiveBoundaryRejectsSymlinkAndMissingRootsBeforeLaunch|TestLiveBoundaryRejectsPreexistingCredentialHardlink|TestLiveBoundaryDeniesProtectedUnixSockets|TestLiveBoundaryCredentialAdmissionHonorsCancellation|TestLiveBoundaryCredentialAdmissionHonorsDeadline|TestLiveBoundaryRejectsPreexistingWritableHardlink|TestLiveBoundaryRuntimeTempKeepsOverlappingRootsProtected|TestLiveNeutralLaunchRejectsWrongAndReplacedDescriptor|TestLiveBoundaryProtectsMissingOptionalCredentialHomes|TestPaneExecManagedNamespaceIsolation)$'
   ```
 
   Remove only the task-owned directory after recording results and confirm that
@@ -82,15 +77,14 @@ access.
   protocol state and captured streams remain under the declared temporary root.
 - **Pass condition:** Both commands exit zero and every named test runs without
   external provider access, ambient credential reads, or source mutations.
-- **Revalidation triggers:** Protocol frames, live invocation authority,
+- **Revalidation triggers:** Terminal delivery, live invocation authority,
   credential projection, protected-root policy, accepted report transport, or
   cleanup precedence changes.
 - **Sources:** [Contracts](specs/contracts.md), [Security](specs/security.md),
   `internal/adapters/providercli/live_execution.go`,
-  `internal/adapters/providercli/zcode_protocol.go`, and
+  `internal/adapters/providercli/zcode_terminal_darwin.go`, and
   `internal/adapters/process/live_boundary_darwin.go`.
 - **Owner:** [Provider adapter package map](architecture/README.md#package-map).
 
-Historical staged-file protocol fixtures remain internal regression checks.
-Terminal-runtime providers (Grok) validate invocation-scoped staged outputs
-strictly after verified `ESRCH` teardown and publish under `stdout` transport.
+ZCode and Grok validate invocation-scoped staged outputs after verified
+`ESRCH` teardown and publish the accepted bytes under `stdout` transport.

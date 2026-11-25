@@ -281,6 +281,7 @@ func equivalentFamilyRuntimeProfiles(left, right RuntimeDefinition) bool {
 		left.ApplicationVersion() != right.ApplicationVersion() ||
 		left.ApplicationMetadata() != right.ApplicationMetadata() ||
 		left.ApplicationMetadataSHA256() != right.ApplicationMetadataSHA256() ||
+		left.zcodeCompanion != right.zcodeCompanion ||
 		left.ZCodeModel() != right.ZCodeModel() ||
 		left.ZCodeReasoningEffort() != right.ZCodeReasoningEffort() ||
 		left.ProfileGeneration() != right.ProfileGeneration() ||
@@ -383,13 +384,24 @@ func (probe *CurrentProbe) QualifyCurrent(ctx context.Context, request CurrentPr
 	if err != nil {
 		return CurrentProbeResult{}, securityProbeFailure("invocation", "safe version invocation unavailable", err)
 	}
-	versionObservation, _, _, _, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, "")
-	if versionError != nil {
-		return CurrentProbeResult{}, versionError
-	}
-	version, err := plainSemver(definition.Family(), versionObservation)
-	if err != nil {
-		return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), err, versionObservation.Stderr(), versionObservation.Stdout())
+	version := definition.zcodeCompanion.Version
+	if definition.Family() == FamilyZcode {
+		if !definition.zcodeCompanion.Valid() || !acceptedObservedVersion(version) {
+			return CurrentProbeResult{}, securityProbeFailure("version", "companion version identity unavailable", nil)
+		}
+		if !VersionAtLeast(version, 0, 2, 0) {
+			return CurrentProbeResult{}, probeFailure("version", domain.FailureProviderUnavailable, "companion version below supported minimum", nil)
+		}
+
+	} else {
+		versionObservation, _, _, _, _, versionError = probe.runBound(ctx, definition, namespace, fixture, versionArgv, environment, timeout, nil, "")
+		if versionError != nil {
+			return CurrentProbeResult{}, versionError
+		}
+		version, err = plainSemver(definition.Family(), versionObservation)
+		if err != nil {
+			return CurrentProbeResult{}, classifyProbeFailure(ctx, definition.Family(), err, versionObservation.Stderr(), versionObservation.Stdout())
+		}
 	}
 	expires := request.Now.Add(request.TTL)
 	// Family/runtime readiness uses one capability probe on the base fixture.
@@ -507,7 +519,6 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}
 	var request ports.ProcessRequest
 	var requestErr error
-	var protocolSession providerProtocolSession
 	authority, authorityErr := adapterAuthorityForFamily(definition.Family())
 	if authorityErr != nil {
 		return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "protocol authority unavailable", authorityErr)
@@ -524,7 +535,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 	}
 	defer closePreopenedLaunchDir()
 
-	if definition.Family() == FamilyGrok {
+	if definition.Family() == FamilyGrok || definition.Family() == FamilyZcode {
 		grokAuthority, ok := namespace.(interface {
 			grokQualificationBinding(ports.AnchoredRoot) (ports.LiveReadOnlyBoundary, ports.AnchoredRoot, ports.AnchoredRoot, string, *os.File, error)
 		})
@@ -575,12 +586,28 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 					regLabel = "qual"
 				}
 			}
+			var lease *namespaceLease
+			if concrete, ok := namespace.(interface{ concreteNamespace() *namespaceLease }); ok {
+				lease = concrete.concreteNamespace()
+			}
+			profile := authority.terminalProfile
+			if definition.Family() == FamilyZcode {
+				if lease == nil || !lease.managedParent.Valid() {
+					return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("namespace", "ZCode namespace authority missing", nil)
+				}
+				zcodeProfile, err := zcodeProfileForDefinition(definition)
+				if err != nil {
+					return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("capability", "ZCode companion authority changed", err)
+				}
+				profile = zcodeProfile
+			}
 			launchDir := preopenedLaunchDir
 			preopenedLaunchDir = nil
-			termRes, termErr := executeTerminalInvocation(ctx, probe.terminalRunner, authority.terminalProfile, terminalDriverRequest{
+			termRes, termErr := executeTerminalInvocation(ctx, probe.terminalRunner, profile, terminalDriverRequest{
 				Definition:           definition,
 				Purpose:              terminalPurposeQualification,
 				Packet:               *packet,
+				Namespace:            lease,
 				NamespaceRoot:        grokNamespaceRoot,
 				NamespaceEnvironment: namespace.Environment(),
 				ExtraEnvironment:     extraEnv,
@@ -599,7 +626,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 			if postErr := guard.RevalidateAfterExecution(); postErr != nil {
 				return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 			}
-			if terminalIdentity.Valid() {
+			if terminalIdentity.Valid() && definition.Family() == FamilyGrok {
 				if binder, ok := namespace.(interface {
 					bindGrokTerminalRuntimeIdentity(ports.TerminalRuntimeIdentity) error
 				}); ok {
@@ -617,6 +644,21 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 				}
 				return observation, nil, nil, nil, terminalIdentity, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, termErr), observation.Stderr(), observation.Stdout())
 			}
+			if definition.Family() == FamilyZcode {
+				if !termRes.ZCodePreparation.valid() || !terminalIdentity.Valid() {
+					return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("namespace", "ZCode preparation evidence missing", nil)
+				}
+				lease.policyMu.Lock()
+				prior := lease.zcodePrepared
+				drift := prior.valid() && (prior != termRes.ZCodePreparation || lease.zcodeTerminal != terminalIdentity)
+				if !drift {
+					lease.zcodePrepared, lease.zcodeTerminal = termRes.ZCodePreparation, terminalIdentity
+				}
+				lease.policyMu.Unlock()
+				if drift {
+					return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("namespace", "ZCode preparation identity drift", nil)
+				}
+			}
 			receiptEnv, envErr := ports.TerminalEnvironmentWithPassthroughMarker(termRes.EffectiveEnvironment)
 			if envErr != nil {
 				return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("environment", "terminal passthrough environment invalid", envErr)
@@ -633,24 +675,8 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		} else {
 			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, workingDirectory, binding, timeout)
 		}
-	} else if packet == nil {
-		request, requestErr = ports.NewProcessRequest(definition.Executable(), argv, environment, workingDirectory, nil, timeout)
-	} else if authority.qualificationChannel == ports.ProviderPacketChannelProtocol && authority.protocolDriver != nil {
-		binding, bindingErr := ports.NewProtocolProviderPacketBinding(*packet)
-		if bindingErr != nil {
-			requestErr = bindingErr
-		} else {
-			request, requestErr = ports.NewProviderProtocolProcessRequest(definition.Executable(), argv, environment, workingDirectory, binding, timeout)
-		}
-		if requestErr == nil {
-			configuration, configurationErr := protocolConfigurationForNamespace(ctx, definition, namespace)
-			if configurationErr != nil {
-				return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, configurationErr
-			}
-			protocolSession, requestErr = authority.protocolDriver.NewSession(workingDirectory, packet.Bytes(), protocolPurposeQualification, nil, configuration)
-		}
 	} else {
-		request, requestErr = boundProbeProviderRequest(definition, *packet, argv, "@"+fixture.Reference(), environment, workingDirectory, timeout)
+		return observation, nil, nil, nil, terminalIdentity, securityProbeFailure("process", "missing terminal launch authority", nil)
 	}
 	if requestErr != nil {
 		return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "bound process request rejected", requestErr)
@@ -692,28 +718,11 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		}
 		return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("spawn", "spawn verification failed", err)
 	}
-	if protocolSession != nil {
-		conversationRunner, ok := probe.runner.(ports.ProviderConversationRunner)
-		if !ok {
-			if launchDirectory, _, _ := request.LaunchDirectory(); launchDirectory != nil {
-				_ = launchDirectory.Close()
-			}
-			return ports.ProcessObservation{}, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("process", "process runner cannot converse", nil)
-		}
-		observation, err = conversationRunner.Converse(ctx, request, protocolSession)
-	} else {
-		observation, err = probe.runner.Run(ctx, request)
-	}
-	var transcriptCleanupErr error
-	if protocolSession != nil {
-		protocolEvidence = protocolSession.AssistantEvidenceText()
-		transcriptCleanupErr = releaseProtocolTranscript(observation)
-	}
+	observation, err = probe.runner.Run(ctx, request)
 	if postErr := guard.RevalidateAfterExecution(); postErr != nil {
-		return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, errors.Join(securityProbeFailure("fixture", "post-execution fixture drift", postErr), transcriptCleanupErr)
+		return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, securityProbeFailure("fixture", "post-execution fixture drift", postErr)
 	}
 	if err != nil {
-		err = errors.Join(err, transcriptCleanupErr)
 		if interruption := qualificationInterruptionFailure(observation, err); interruption != nil {
 			if errors.Is(interruption, context.Canceled) {
 				return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, interruption
@@ -722,10 +731,7 @@ func (probe *CurrentProbe) runBound(ctx context.Context, definition RuntimeDefin
 		}
 		return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, classifyProbeFailure(ctx, definition.Family(), qualificationProcessFailure(definition.Family(), observation, err), observation.Stderr(), observation.Stdout())
 	}
-	if transcriptCleanupErr != nil {
-		return observation, nil, nil, nil, ports.TerminalRuntimeIdentity{}, probeFailure("process", domain.FailureArtifact, "protocol transcript cleanup failed", transcriptCleanupErr)
-	}
-	return observation, protocolEvidence, argv, environment, ports.TerminalRuntimeIdentity{}, nil
+	return observation, nil, argv, environment, ports.TerminalRuntimeIdentity{}, nil
 }
 
 func isProtectedQualificationSecurityFailure(err error) bool {
@@ -926,6 +932,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		ApplicationMetadataSHA256, ZCodeProviderConfig, ZCodeProviderConfigSHA256 string
 		ProfileGeneration, RuntimeSafetyPolicyIdentity, ProfileID                 string
 		ZCodeModel, ZCodeReasoningEffort                                          string
+		ZCodeCompanion                                                            ports.ZCodeCompanionObservation
 		GrokModel, GrokReasoningEffort, GrokSettingsIdentity                      string
 		BaseArgv, Environment                                                     []string
 		TransportChannel, TransportReference                                      string
@@ -945,6 +952,7 @@ func currentProbeRuntimeDefinitionIdentity(definition RuntimeDefinition) (string
 		ApplicationMetadataSHA256: definition.applicationMetadataSHA256,
 		ZCodeProviderConfig:       definition.zcodeProviderConfig, ZCodeProviderConfigSHA256: definition.zcodeProviderConfigSHA256,
 		ZCodeModel: definition.zcodeModel, ZCodeReasoningEffort: definition.zcodeReasoningEffort,
+		ZCodeCompanion:    definition.zcodeCompanion,
 		ProfileGeneration: definition.profileGeneration, RuntimeSafetyPolicyIdentity: definition.runtimeSafetyPolicyIdentity,
 		ProfileID: definition.profileID,
 		GrokModel: definition.grokModel, GrokReasoningEffort: definition.grokReasoningEffort,

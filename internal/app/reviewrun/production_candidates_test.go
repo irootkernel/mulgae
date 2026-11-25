@@ -21,6 +21,16 @@ const (
 	testZCodeApplicationMetadataSHA256 = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
+func testZCodeCandidateProfile(t *testing.T) DiscoveredProviderProfile {
+	t.Helper()
+	companion := authorityTestZCodeCompanion(t, "0.2.0")
+	return DiscoveredProviderProfile{
+		family: FamilyZCode, executable: companion.Executable, launcher: companion.Executable,
+		argv: []string{companion.Executable}, sha256: companion.ExecutableSHA256, launcherSHA256: companion.ExecutableSHA256,
+		applicationVersion: companion.AppVersion, applicationVersionClassification: VersionGreen,
+		zcodeCompanion: companion, reason: "unqualified_discovery",
+	}
+}
 func TestProductionCandidateTemplatesAreCanonicalAndBounded(t *testing.T) {
 	templates, err := trustedProductionCandidateTemplates(providercli.RuntimeBuilder{})
 	if err != nil {
@@ -38,7 +48,7 @@ func TestProductionCandidateTemplatesAreCanonicalAndBounded(t *testing.T) {
 			if template.family != family || template.instance != wantInstance || template.profileID != wantInstance || !reflect.DeepEqual(template.supportedRoles, []domain.Role{role}) {
 				t.Fatalf("template %s/%s = %#v", family, role, template)
 			}
-			if family == FamilyZCode && (template.transportChannel != ports.ProviderPacketChannelProtocol || template.transportArgvIndex != -1) {
+			if family == FamilyZCode && (template.transportChannel != ports.ProviderPacketChannelTerminal || template.transportArgvIndex != -1) {
 				t.Fatalf("ZCode template %s = %#v", role, template)
 			}
 			if template.limits.Timeout() != productionDefaultProviderTimeout {
@@ -53,7 +63,7 @@ func TestProductionCandidateTemplatesAreCanonicalAndBounded(t *testing.T) {
 
 func TestProductionCandidateTemplatesBindDistinctFamilyTimeoutsToLimitsAndRuntimeDefinitions(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{
-		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
+		testZCodeCandidateProfile(t),
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
 	}
 	identities := map[Family]string{FamilyZCode: "zcode-policy", FamilyGrok: "grok-policy"}
@@ -109,10 +119,8 @@ func TestProductionProviderTimeoutsRequireExactBoundedFamilyCoverage(t *testing.
 }
 
 func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
-	profiles := []DiscoveredProviderProfile{{
-		family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher,
-		argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery",
-	}}
+	profile := testZCodeCandidateProfile(t)
+	profiles := []DiscoveredProviderProfile{profile}
 	source, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, profiles)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +144,7 @@ func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
 	}
 	for _, candidate := range candidates {
 		instance := candidate.Definition.Instance()
-		if !reflect.DeepEqual(candidate.SupportedRoles, want[instance]) || candidate.Definition.Executable() != testZCodeExecutable || candidate.Definition.Launcher() != testZCodeLauncher {
+		if !reflect.DeepEqual(candidate.SupportedRoles, want[instance]) || candidate.Definition.Executable() != profile.Executable() || candidate.Definition.Launcher() != profile.Executable() {
 			t.Fatalf("ZCode candidate %s = roles %v definition %#v", instance, candidate.SupportedRoles, candidate.Definition)
 		}
 		if candidate.Limits.Timeout() != productionDefaultProviderTimeout || candidate.Definition.Timeout() != productionDefaultProviderTimeout {
@@ -146,7 +154,7 @@ func TestProductionCandidatesShardZCodeRolesAcrossSevenInstances(t *testing.T) {
 }
 func TestProductionCandidatesUseInjectedPolicyIdentitiesWithClosedCoverage(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{
-		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
+		testZCodeCandidateProfile(t),
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
 	}
 	identities := map[Family]string{
@@ -249,31 +257,15 @@ func TestValidateStartupProfilesRejectsMalformedAndCopiesArgv(t *testing.T) {
 	if err := validateStartupProfiles([]DiscoveredProviderProfile{profile}); err == nil {
 		t.Fatal("tampered profile was accepted")
 	}
-	zcodeBelowMinimum := DiscoveredProviderProfile{
-		family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher,
-		argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha",
-		providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256,
-		applicationVersion: "3.12.2", applicationVersionClassification: VersionRed,
-		applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256,
-		reason: "application_version_ineligible",
-	}
+	zcodeBelowMinimum := testZCodeCandidateProfile(t)
+	zcodeBelowMinimum.applicationVersion = "3.18.1"
+	zcodeBelowMinimum.zcodeCompanion.AppVersion = zcodeBelowMinimum.applicationVersion
+	zcodeBelowMinimum.zcodeCompanion.DesktopBelowMinimum = true
+	zcodeBelowMinimum.applicationVersionClassification = VersionRed
 	if err := validateStartupProfiles([]DiscoveredProviderProfile{zcodeBelowMinimum}); err != nil {
-		t.Fatalf("below-minimum ZCode profile did not reach typed qualification: %v", err)
+		t.Fatalf("below-minimum desktop profile did not reach qualification: %v", err)
 	}
-	zcodeMalformed := zcodeBelowMinimum
-	zcodeMalformed.applicationVersion = "garbage"
-	zcodeMalformed.applicationVersionClassification = VersionUnknown
-	zcodeMalformed.reason = "application_version_malformed"
-	if err := validateStartupProfiles([]DiscoveredProviderProfile{zcodeMalformed}); err != nil {
-		t.Fatalf("malformed ZCode profile did not reach typed qualification: %v", err)
-	}
-	partialZCode := DiscoveredProviderProfile{
-		family: FamilyZCode, launcher: testZCodeLauncher, launcherSHA256: "launcher-sha",
-		providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256,
-		applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen,
-		applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256,
-		reason: "executable_not_found",
-	}
+	partialZCode := DiscoveredProviderProfile{family: FamilyZCode, reason: "herdr_zcode_missing"}
 	if _, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, []DiscoveredProviderProfile{partialZCode, {
 		family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok",
 		argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery",
@@ -283,7 +275,7 @@ func TestValidateStartupProfilesRejectsMalformedAndCopiesArgv(t *testing.T) {
 }
 func TestProductionCandidatesBindCurrentProfilesAndLiveSource(t *testing.T) {
 	profiles := []DiscoveredProviderProfile{
-		{family: FamilyZCode, executable: testZCodeExecutable, launcher: testZCodeLauncher, argv: []string{testZCodeExecutable, testZCodeLauncher}, sha256: "runtime-sha", launcherSHA256: "launcher-sha", providerConfig: testZCodeProviderConfig, providerConfigSHA256: testZCodeProviderConfigSHA256, applicationVersion: "3.12.3", applicationVersionClassification: VersionGreen, applicationMetadata: testZCodeApplicationMetadata, applicationMetadataSHA256: testZCodeApplicationMetadataSHA256, reason: "unqualified_discovery"},
+		testZCodeCandidateProfile(t),
 		{family: FamilyGrok, executable: "/private/bin/grok", launcher: "/private/bin/grok", argv: []string{"/private/bin/grok"}, sha256: "grok-sha", launcherSHA256: "grok-sha", reason: "unqualified_discovery"},
 	}
 	source, err := NewProductionQualifiedRunCandidateSource(providercli.RuntimeBuilder{}, profiles)
@@ -321,9 +313,9 @@ func TestProductionCandidatesBindCurrentProfilesAndLiveSource(t *testing.T) {
 		environment := candidate.Definition.Environment()
 		if Family(candidate.Definition.Family()) == FamilyZCode {
 			if candidate.Definition.ProfileGeneration() == productionProfileGeneration || !strings.HasPrefix(candidate.Definition.ProfileGeneration(), zcodeProductionProfileGeneration+":") {
-				t.Fatalf("ZCode profile generation did not bind provider config: %q", candidate.Definition.ProfileGeneration())
+				t.Fatalf("ZCode profile generation did not bind companion package: %q", candidate.Definition.ProfileGeneration())
 			}
-			if len(environment) != 2 || environment[0].Name() != "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE" || environment[0].Value() != testZCodeProviderConfig || environment[1].Name() != "ELECTRON_RUN_AS_NODE" || environment[1].Value() != "1" {
+			if len(environment) != 0 {
 				t.Fatalf("ZCode environment = %v", environment)
 			}
 		} else {
@@ -337,7 +329,7 @@ func TestProductionCandidatesBindCurrentProfilesAndLiveSource(t *testing.T) {
 	}
 	for _, candidate := range candidates {
 		if Family(candidate.Definition.Family()) == FamilyZCode {
-			if got := candidate.Definition.BaseArgv(); !reflect.DeepEqual(got, []string{testZCodeExecutable, testZCodeLauncher}) {
+			if got := candidate.Definition.BaseArgv(); !reflect.DeepEqual(got, []string{profiles[0].Executable()}) {
 				t.Fatalf("ZCode argv = %v", got)
 			}
 			break

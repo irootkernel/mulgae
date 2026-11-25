@@ -81,21 +81,11 @@ func TestQualificationRegistryFactoryConcurrentConstructionAcrossFamilies(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	configVariable, err := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", "/private/config/zcode-builtin.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	electronVariable, err := ports.NewEnvironmentVariable("ELECTRON_RUN_AS_NODE", "1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	zcodeEnvironment := []ports.EnvironmentVariable{configVariable, electronVariable}
 	zcodeDefinition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		FamilyZcode, "zcode_production", "", "/private/bin/zcode", "executable-sha256",
-		"/private/bin/zcode.cjs", "executable-sha256", "/private/config/zcode-builtin.json",
-		"sha256:"+strings.Repeat("a", 64),
+		FamilyZcode, "zcode_production", "", "/private/bin/herdr-zcode", "executable-sha256",
+		"/private/bin/herdr-zcode", "executable-sha256", "", "",
 		"zcode_production", "generation-1", zcodePolicy.Identity(),
-		[]string{"/private/bin/zcode", "/private/bin/zcode.cjs"}, zcodeTransport, zcodeEnvironment, "/private/work", time.Second,
+		[]string{"/private/bin/herdr-zcode"}, zcodeTransport, nil, "/private/work", time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)

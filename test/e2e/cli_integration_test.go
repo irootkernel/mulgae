@@ -23,10 +23,12 @@ import (
 
 	adaptercli "github.com/irootkernel/mulgae/internal/adapters/cli"
 	adapterconfig "github.com/irootkernel/mulgae/internal/adapters/config"
+	"github.com/irootkernel/mulgae/internal/adapters/herdr"
 	"github.com/irootkernel/mulgae/internal/app"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
 	"github.com/irootkernel/mulgae/internal/testsupport/haeparifixture"
+	"github.com/irootkernel/mulgae/internal/testsupport/zcodefixture"
 )
 
 const productName = "mulgae"
@@ -798,10 +800,7 @@ func buildFakeZCode(t *testing.T, root, binary, launcher, logPath, mode string) 
 }
 
 func fakeZCodeAppPaths(root string) (string, string, string) {
-	bundle := filepath.Join(root, "ZCode.app")
-	return bundle,
-		filepath.Join(bundle, "Contents", "MacOS", "ZCode"),
-		filepath.Join(bundle, "Contents", "Resources", "glm", "zcode.cjs")
+	return filepath.Join(root, "ZCode.app"), filepath.Join(root, "bin", "herdr-zcode"), filepath.Join(root, "bin", "hc")
 }
 
 func buildFakeZCodeWithBarrier(t *testing.T, root, binary, launcher, logPath, barrier string) {
@@ -812,12 +811,11 @@ func buildFakeZCodeWithBarrier(t *testing.T, root, binary, launcher, logPath, ba
 func buildFakeZCodeWithReport(t *testing.T, root, binary, launcher, logPath, mode, barrier, reportBody string) {
 	t.Helper()
 	startFakeZCodeObserver(t, logPath, barrier)
-	mustWriteTestFile(t, launcher, []byte("// offline fake ZCode launcher\n"))
-	mustWriteTestFile(t, filepath.Join(filepath.Dir(launcher), "..", "config", "provider", "zcode-builtin.json"), []byte(`{"schemaVersion":1,"revision":30,"config":{"providerConfigRules":{"providerRules":[{"providerId":"account:zai-individual-coding-plan","config":{"builtinModelIds":["GLM-5.3","GLM-5.3-Flash"],"access":{"type":"zhipu-account","mode":"individual-coding-plan","accountType":"zai"}}}]}}}
-`))
-	mustWriteTestFile(t, filepath.Join(filepath.Dir(filepath.Dir(binary)), "Info.plist"), []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>3.12.3</string></dict></plist>
-`))
+	bundle, expected, err := zcodefixture.Create(filepath.Dir(filepath.Dir(binary)))
+	if err != nil || expected != binary {
+		t.Fatalf("create companion fixture: %v", err)
+	}
+	buildFakeHerdrCore(t, root, launcher, fakeZCodeObserverSocket(logPath))
 	source := filepath.Join(t.TempDir(), "main.go")
 	program := `package main
 
@@ -825,10 +823,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"regexp"
-	"slices"
+	"crypto/sha256"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -842,223 +840,89 @@ type observation struct {
 }
 
 const barrierDirectory = __FAKE_ZCODE_BARRIER__
-const requestRuntimeAuth = __FAKE_ZCODE_RUNTIME_AUTH__
+const appBundle = __FAKE_ZCODE_BUNDLE__
 
 var roleGuide = regexp.MustCompile("Mulgae ROOT REVIEW ROLE GUIDE/[0-9]+: ([A-Z]+)")
 
 func main() {
-	argv := append([]string(nil), os.Args[1:]...)
-	if len(argv) == 2 && argv[1] == "--version" {
-		fmt.Println("22.14.0")
+	argv := os.Args[1:]
+	switch argv[0] {
+	case "--version":
+		fmt.Println("{\"name\":\"herdr-zcode\",\"version\":\"0.2.0\",\"runtimes\":[\"core\"],\"osc7501\":true,\"capabilities\":[\"core\",\"osc7501\",\"catalogFile\",\"prepareIsolated\",\"checkDesktop\"]}")
 		return
+	case "--check-desktop":
+		if value(argv, "--app-bundle") != appBundle { panic("wrong fake app bundle") }
+		emit(map[string]any{"compatible":true,"appVersion":"4.0.0","appBundle":appBundle,"minZcodeAppVersion":"3.18.2"})
+		return
+	case "prepare-isolated":
+		if value(argv, "--app-bundle") != appBundle { panic("wrong preparation app bundle") }
+		dir := value(argv, "--out-dir")
+		auth, catalog := filepath.Join(dir, "auth.json"), filepath.Join(dir, "catalog.json")
+		account := "fixture-account"
+		contents := []byte("{\"revision\":30}")
+		accountBytes := []byte("{\"providerId\":\"account:zai-individual-coding-plan\",\"identity\":\"fixture-account\",\"accountAccess\":{\"type\":\"zhipu-account\",\"mode\":\"individual-coding-plan\",\"accountType\":\"zai\"}}")
+		must(os.WriteFile(auth, accountBytes, 0600))
+		must(os.WriteFile(catalog, contents, 0400))
+		emit(map[string]any{"authFile":auth,"catalogFile":catalog,"catalogRevision":30,
+			"catalogSHA256":fmt.Sprintf("%x",sha256.Sum256(contents)),"catalogSource":"bundled",
+			"appVersion":"4.0.0","minZcodeAppVersion":"3.18.2","providerId":"account:zai-individual-coding-plan",
+			"accountIdentitySHA256":fmt.Sprintf("%x",sha256.Sum256([]byte(account)))})
+		return
+	case "--runtime":
+	default:
+		panic("non-canonical companion command")
 	}
-	if len(argv) != 3 || argv[1] != "app-server" || argv[2] != "--stdio" {
-		panic("non-canonical ZCode invocation")
+	if value(argv, "--runtime") != "core" || value(argv, "--mode") != "yolo" || value(argv, "--interaction-policy") != "block" ||
+		value(argv, "--app-bundle") != appBundle || value(argv, "--catalog-file") == "" {
+		panic("non-canonical companion pane arguments")
 	}
-	serve(argv)
+	must(os.Remove(value(argv, "--auth-file")))
+	fmt.Println("MULGAE_FIXTURE_IDLE")
+	input, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	must(err)
+	promptPath := regexp.MustCompile("at (.+?) through EOF").FindStringSubmatch(input)
+	destination := regexp.MustCompile("write the required output to (.+?)\\.(?: JSON-only|\\r?\\n)").FindStringSubmatch(input)
+	if len(promptPath) != 2 || len(destination) != 2 { panic("unexpected terminal input") }
+	body, err := os.ReadFile(promptPath[1])
+	must(err)
+	prompt := string(body)
+	nonce := regexp.MustCompile("(?m)^MULGAE_COMPLETE:[0-9a-f]+$").FindString(prompt)
+	if nonce == "" { panic("missing completion binding") }
+	cwd, err := os.Getwd()
+	must(err)
+	allow := strings.Split(value(argv, "--tool-allowlist"), ",")
+	observe(observation{Argv:argv,CWD:cwd,Prompt:prompt,Destination:destination[1],ToolAllowlist:allow}, false)
+	fmt.Println("MULGAE_FIXTURE_WORKING")
+	var output string
+	switch {
+	case strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else."):
+		output = capabilityProof(prompt)
+	case strings.Contains(prompt, "Mulgae admitted extraction target metadata"):
+		output = extraction(prompt)
+	default:
+		if !reviewFailureVariant() {
+			waitForPeer()
+			output = report(prompt)
+		}
+	}
+	must(os.WriteFile(destination[1], []byte(strings.TrimSpace(output)+"\n"+nonce+"\n"), 0600))
+	fmt.Println("MULGAE_FIXTURE_DONE")
+	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 }
 
-// serve speaks the ZCode app-server protocol on stdio: one session per
-// process, the packet as the single turn's content, and assistant text or
-// controlled qualification proof produced before turn completion.
-func serve(argv []string) {
-	sessionID := "sess_fake"
-	var prompt, mode, denylist, proof string
-	var allowlist []string
-	capability, accountConfigured, authAccepted, modelSelected := false, false, !requestRuntimeAuth, false
-	stdout := bufio.NewWriter(os.Stdout)
-	defer stdout.Flush()
-	reply := func(id json.RawMessage, result any) {
-		payload, err := json.Marshal(map[string]any{"id": id, "result": result})
-		if err != nil {
-			panic(err)
-		}
-		fmt.Fprintln(stdout, string(payload))
-		stdout.Flush()
+func emit(value any) { must(json.NewEncoder(os.Stdout).Encode(value)) }
+func must(err error) { if err != nil { panic(err) } }
+func value(args []string, name string) string {
+	for index, arg := range args[:len(args)-1] {
+		if arg == name { return args[index+1] }
 	}
-	notifyTurn := func(kind string) {
-		payload, err := json.Marshal(map[string]any{
-			"method": "computer-use/operation-event",
-			"params": map[string]any{"kind": kind, "turnId": "turn_fake", "sessionId": sessionID},
-		})
-		if err != nil {
-			panic(err)
-		}
-		fmt.Fprintln(stdout, string(payload))
-		stdout.Flush()
-	}
-	serverRequest := func(id, method string, params any) {
-		payload, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
-		if err != nil {
-			panic(err)
-		}
-		fmt.Fprintln(stdout, string(payload))
-		stdout.Flush()
-	}
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return
-		}
-		var message struct {
-			ID     json.RawMessage ` + "`json:\"id\"`" + `
-			Method string          ` + "`json:\"method\"`" + `
-			Params json.RawMessage ` + "`json:\"params\"`" + `
-		}
-		if json.Unmarshal([]byte(line), &message) != nil {
-			panic("unparseable protocol message")
-		}
-		if message.Method == "" {
-			var response struct {
-				ID string ` + "`json:\"id\"`" + `
-				Result struct {
-					HeadersApplied bool ` + "`json:\"headersApplied\"`" + `
-					RequestAuth struct { APIKey string ` + "`json:\"apiKey\"`" + ` } ` + "`json:\"requestAuth\"`" + `
-				} ` + "`json:\"result\"`" + `
-			}
-			if json.Unmarshal([]byte(line), &response) != nil {
-				panic("unparseable protocol response")
-			}
-			if response.ID == "server-auth" {
-				if !response.Result.HeadersApplied || response.Result.RequestAuth.APIKey != "fake-zcode-api-key" {
-					panic("invalid ZCode runtime auth response")
-				}
-				authAccepted = true
-			}
-			continue
-		}
-		switch message.Method {
-		case "provider/updateAccountConfig":
-			var params struct {
-				Revision string ` + "`json:\"revision\"`" + `
-				States map[string]struct { Current bool ` + "`json:\"current\"`" + ` } ` + "`json:\"states\"`" + `
-			}
-			if json.Unmarshal(message.Params, &params) != nil || params.Revision == "" || !params.States["account:zai-individual-coding-plan"].Current {
-				panic("non-canonical ZCode account configuration")
-			}
-			accountConfigured = true
-			reply(message.ID, map[string]any{"receivedRevision": params.Revision, "providerCount": 1})
-		case "session/create":
-			var params struct {
-				Mode         string   ` + "`json:\"mode\"`" + `
-				ToolDenylist []string ` + "`json:\"toolDenylist\"`" + `
-				ToolAllowlist []string ` + "`json:\"toolAllowlist\"`" + `
-			}
-			if json.Unmarshal(message.Params, &params) != nil || params.Mode == "" || len(params.ToolDenylist) == 0 || !accountConfigured {
-				panic("non-canonical ZCode session create")
-			}
-			mode = params.Mode
-			denylist = strings.Join(params.ToolDenylist, ",")
-			allowlist = params.ToolAllowlist
-			modelSelected = true
-			serverRequest("server-1", "session/requestRuntimePreferences", map[string]any{
-				"sessionId": sessionID,
-				"scope":     "runtime-materialization",
-			})
-			if requestRuntimeAuth {
-				serverRequest("server-auth", "interaction/requestProviderRuntimeHeaders", map[string]any{
-					"providerId": "account:zai-individual-coding-plan",
-					"accountAccess": map[string]any{"type": "zhipu-account", "mode": "individual-coding-plan", "accountType": "zai"},
-				})
-			}
-			reply(message.ID, map[string]any{
-				"session": map[string]any{"sessionId": sessionID},
-				"settings": map[string]any{"model": map[string]any{"available": []any{
-					map[string]any{"ref": map[string]any{"providerId": "account:zai-individual-coding-plan", "modelId": "GLM-5.3"}, "reasoning": map[string]any{"defaultLevel": "max"}},
-					map[string]any{"ref": map[string]any{"providerId": "account:zai-individual-coding-plan", "modelId": "GLM-5.3-Flash"}, "reasoning": map[string]any{"defaultLevel": "max"}},
-				}}},
-			})
-		case "session/setModel":
-			var params struct {
-				SessionID string ` + "`json:\"sessionId\"`" + `
-				Model struct {
-					ProviderID string ` + "`json:\"providerId\"`" + `
-					ModelID string ` + "`json:\"modelId\"`" + `
-					Options struct { ReasoningLevel string ` + "`json:\"reasoningLevel\"`" + ` } ` + "`json:\"options\"`" + `
-				} ` + "`json:\"model\"`" + `
-			}
-			if json.Unmarshal(message.Params, &params) != nil || params.SessionID != sessionID || params.Model.ProviderID != "account:zai-individual-coding-plan" || params.Model.ModelID == "" || params.Model.Options.ReasoningLevel != "max" {
-				panic("non-canonical ZCode model selection")
-			}
-			modelSelected = true
-			selection := map[string]any{"providerId": params.Model.ProviderID, "modelId": params.Model.ModelID, "options": map[string]any{"reasoningLevel": params.Model.Options.ReasoningLevel}}
-			reply(message.ID, map[string]any{
-				"protocol": map[string]any{"name": "ZCode Protocol", "version": 1},
-				"session": map[string]any{"sessionId": sessionID, "model": selection},
-				"settings": map[string]any{"model": map[string]any{"current": selection}},
-			})
-		case "session/send":
-			var params struct {
-				SessionID string ` + "`json:\"sessionId\"`" + `
-				Content   string ` + "`json:\"content\"`" + `
-			}
-			if json.Unmarshal(message.Params, &params) != nil || params.Content == "" || !authAccepted || !modelSelected {
-				panic("non-canonical ZCode session send")
-			}
-			prompt = params.Content
-			capability = strings.Contains(prompt, "Prove readiness by returning exactly one JSON object and nothing else.")
-			extraction := strings.Contains(prompt, "Mulgae admitted extraction target metadata")
-			if capability {
-				if mode != "plan" || denylist != "*" || allowlist == nil || len(allowlist) != 0 {
-					panic("non-canonical ZCode capability conversation")
-				}
-			} else if extraction {
-				if mode != "plan" || denylist != "*" || allowlist == nil || len(allowlist) != 0 {
-					panic("non-canonical ZCode extraction conversation")
-				}
-			} else {
-				if mode != "plan" || !strings.Contains(denylist, "Write") {
-					panic("non-canonical ZCode review conversation")
-				}
-				switch {
-				case strings.Contains(prompt, "\"scope\":\"workspace\""):
-					if !slices.Equal(allowlist, []string{"Read", "Grep", "Glob", "Bash"}) {
-						panic("non-canonical ZCode workspace review allowlist")
-					}
-				case strings.Contains(prompt, "\"scope\":\"stage\""),
-					strings.Contains(prompt, "\"scope\":\"head\""),
-					strings.Contains(prompt, "\"scope\":\"commit\""),
-					strings.Contains(prompt, "\"scope\":\"diff\""):
-					if !slices.Equal(allowlist, []string{"Read", "Bash"}) {
-						panic("non-canonical ZCode git review allowlist")
-					}
-				default:
-					panic("unrecognized ZCode review scope")
-				}
-			}
-			destination := ""
-			if strings.Contains(prompt, "Write your complete final Markdown role report to this exact absolute file path") { panic("live review granted report-file output") }
-			cwd, cwdErr := os.Getwd()
-			if cwdErr != nil {
-				panic(cwdErr)
-			}
-			observe(observation{Argv: argv, CWD: cwd, Prompt: prompt, Destination: destination, ToolAllowlist: allowlist}, false)
-			reply(message.ID, map[string]any{"accepted": true, "sessionId": sessionID, "stateRevision": 1})
-			if capability {
-				proof = capabilityProof(prompt)
-				notifyTurn("turn-completed")
-				continue
-			}
-			if destination != "" { panic("live review granted report-file output") }
-			if !reviewFailureVariant() {
-				waitForPeer()
-				proof = report(prompt)
-			}
-			notifyTurn("turn-completed")
-		case "session/messages":
-			reply(message.ID, map[string]any{
-				"messages": []any{map[string]any{
-					"info":  map[string]any{"role": "assistant"},
-					"parts": []any{map[string]any{"type": "text", "text": proof}},
-				}},
-			})
-		case "session/close":
-			reply(message.ID, map[string]any{"closed": true})
-		default:
-			panic("unexpected ZCode protocol method " + message.Method)
-		}
-	}
+	return ""
+}
+
+func extraction(prompt string) string {
+	start, end := strings.Index(prompt, "\x60\x60\x60json"), strings.LastIndex(prompt, "\x60\x60\x60")
+	if start >= 0 && end > start { return strings.TrimSpace(prompt[start+len("\x60\x60\x60json"):end]) }
+	return "{}"
 }
 
 // capabilityProof extracts the controlled qualification binding from the
@@ -1093,12 +957,14 @@ func reviewFailureVariant() bool {
 }
 
 func observe(value observation, barrier bool) {
-	connection, err := net.Dial("unix", "__FAKE_ZCODE_SOCKET__")
-	if err != nil { panic(err) }
-	defer connection.Close()
-	if err := json.NewEncoder(connection).Encode(map[string]any{"observation": value, "barrier": barrier, "pid": os.Getpid()}); err != nil { panic(err) }
-	var acknowledged bool
-	if err := json.NewDecoder(connection).Decode(&acknowledged); err != nil || !acknowledged { panic("observer acknowledgement failed") }
+	wire, err := json.Marshal(map[string]any{
+		"observation":value, "barrier":barrier, "pid":os.Getpid(),
+	})
+	must(err)
+	fmt.Println("MULGAE_FIXTURE_OBSERVE " + string(wire))
+	reply, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	must(err)
+	if strings.TrimSpace(reply) != "acknowledged" { panic("fixture observation failed") }
 }
 func waitForPeer() {
 	if barrierDirectory != "" { observe(observation{}, true) }
@@ -1126,14 +992,10 @@ func report(prompt string) string {
 
 
 `
-	// Installed VM artifacts retain the real native user. Synthetic app-server
-	// coordination cases never request that user\'s credentials; isolated-home
-	// integration tests keep their existing authentication callback assertions.
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_RUNTIME_AUTH__", strconv.FormatBool(os.Getenv("MULGAE_VM_WORK_ROOT") == ""))
+	program = strings.ReplaceAll(program, "__FAKE_ZCODE_BUNDLE__", strconv.Quote(bundle))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_BARRIER__", strconv.Quote(barrier))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_REPORT_BODY__", strconv.Quote(reportBody))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_LOG__", logPath)
-	program = strings.ReplaceAll(program, "__FAKE_ZCODE_SOCKET__", fakeZCodeObserverSocket(logPath))
 	program = strings.ReplaceAll(program, "__FAKE_ZCODE_MODE__", mode)
 	mustWriteTestFile(t, source, []byte(program))
 	build := exec.Command("go", "build", "-o", binary, source)
@@ -1141,6 +1003,26 @@ func report(prompt string) string {
 	build.Env = goBuildEnv(os.Environ())
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build fake ZCode: %v\n%s", err, output)
+	}
+	resolved, err := herdr.ResolveZCodePackage(herdr.ResolveOptions{OverridePath: binary, HasOverride: true})
+	if err != nil {
+		t.Fatalf("fixture companion verification: %v", err)
+	}
+	if err := herdr.VerifyZCodeAppBundle(bundle); err != nil {
+		t.Fatalf("verify fixture bundle: %v", err)
+	}
+	if _, err := herdr.ObserveZCodeCompanion(t.Context(), resolved, bundle); err != nil {
+		t.Fatalf("fixture companion diagnostics: %v", err)
+	}
+
+}
+
+func buildFakeHerdrCore(t *testing.T, root, path, socket string) {
+	t.Helper()
+	build := exec.Command("go", "build", "-ldflags", "-X main.observerSocket="+socket, "-o", path, "./test/e2e/testdata/herdr")
+	build.Dir, build.Env = root, goBuildEnv(os.Environ())
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fake herdr-core: %v\n%s", err, output)
 	}
 }
 
@@ -1599,7 +1481,7 @@ func isolatedMulgaeEnvWith(t *testing.T, home, providerDirectory string) []strin
 		"TMPDIR=" + canonicalTestTempDir(t),
 		"XDG_CACHE_HOME=" + canonicalTestTempDir(t),
 		"XDG_CONFIG_HOME=" + canonicalTestTempDir(t),
-		"PATH=" + providerDirectory + ":/usr/bin",
+		"PATH=" + filepath.Join(providerDirectory, "bin") + ":" + providerDirectory + ":/usr/bin",
 		"NO_PROXY=*",
 		"GOPROXY=off",
 		"GOSUMDB=off",
@@ -1614,7 +1496,7 @@ func sharedMulgaeProcessEnv(t *testing.T, home, providerDirectory, runtimeRoot s
 		"TMPDIR=" + runtimeRoot,
 		"XDG_CACHE_HOME=" + canonicalTestTempDir(t),
 		"XDG_CONFIG_HOME=" + canonicalTestTempDir(t),
-		"PATH=" + providerDirectory + ":/usr/bin",
+		"PATH=" + filepath.Join(providerDirectory, "bin") + ":" + providerDirectory + ":/usr/bin",
 		"NO_PROXY=*",
 		"GOPROXY=off",
 		"GOSUMDB=off",

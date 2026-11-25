@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +28,6 @@ import (
 
 // maximumExecutableSize bounds executable observation I/O and hashing work to 512 MiB.
 const maximumExecutableSize int64 = 512 * 1024 * 1024
-const maximumApplicationMetadataSize int64 = 1 << 20
 const executableVersionTimeout = 5 * time.Second
 const maximumVersionOutputBytes = 64 << 10
 
@@ -83,42 +81,13 @@ func NewProviderVersionObserver() ProviderVersionObserver { return ProviderVersi
 func (ProviderVersionObserver) ObserveProviderVersion(
 	ctx context.Context, family string, argv []string, identity ports.ProviderVersionIdentity,
 ) (observation ports.ProviderVersionObservation, resultErr error) {
-	if ctx == nil || len(argv) < 2 || argv[len(argv)-1] != "--version" {
+	if ctx == nil || family != providercli.FamilyGrok || len(argv) != 2 || argv[1] != "--version" {
 		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid request")
 	}
-	switch family {
-	case providercli.FamilyZcode, providercli.FamilyGrok:
-	default:
-		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: unsupported family")
-	}
-	executable, launcher := argv[0], argv[0]
-	if family == string(providercli.FamilyZcode) {
-		if len(argv) != 3 || identity.ZCodeProviderConfig == "" || identity.ZCodeProviderConfigSHA256 == "" ||
-			identity.ApplicationMetadata == "" || identity.ApplicationMetadataSHA256 == "" {
-			return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid zcode argv")
-		}
-		launcher = argv[1]
-	} else if len(argv) != 2 || identity.ZCodeProviderConfig != "" || identity.ZCodeProviderConfigSHA256 != "" ||
-		identity.ApplicationMetadata != "" || identity.ApplicationMetadataSHA256 != "" {
-		return ports.ProviderVersionObservation{}, fmt.Errorf("provider version observation: invalid direct argv")
-	}
-	if err := verifySpawnIdentity(ctx, executable, identity.ExecutableSHA256); err != nil {
+	executable := argv[0]
+	if identity.ExecutableSHA256 != identity.LauncherSHA256 ||
+		verifySpawnIdentity(ctx, executable, identity.ExecutableSHA256) != nil {
 		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-	}
-	verifyLauncher := verifySpawnIdentity
-	if family == string(providercli.FamilyZcode) {
-		verifyLauncher = verifyReadableSpawnIdentity
-	}
-	if err := verifyLauncher(ctx, launcher, identity.LauncherSHA256); err != nil {
-		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-	}
-	if family == string(providercli.FamilyZcode) {
-		if err := verifyReadableSpawnIdentity(ctx, identity.ZCodeProviderConfig, identity.ZCodeProviderConfigSHA256); err != nil {
-			return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-		}
-		if err := verifyReadableSpawnIdentity(ctx, identity.ApplicationMetadata, identity.ApplicationMetadataSHA256); err != nil {
-			return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-		}
 	}
 
 	runtimeRoot, err := os.MkdirTemp("", "mulgae-version-")
@@ -144,9 +113,7 @@ func (ProviderVersionObserver) ObserveProviderVersion(
 		"TMP=" + runtimeRoot,
 		"TEMP=" + runtimeRoot,
 	}
-	if family == providercli.FamilyZcode {
-		command.Env = append(command.Env, "ELECTRON_RUN_AS_NODE=1")
-	}
+
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.WaitDelay = 250 * time.Millisecond
 	command.Cancel = func() error {
@@ -173,17 +140,6 @@ func (ProviderVersionObserver) ObserveProviderVersion(
 	}
 	if err := verifySpawnIdentity(ctx, executable, identity.ExecutableSHA256); err != nil {
 		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-	}
-	if err := verifyLauncher(ctx, launcher, identity.LauncherSHA256); err != nil {
-		return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-	}
-	if family == string(providercli.FamilyZcode) {
-		if err := verifyReadableSpawnIdentity(ctx, identity.ZCodeProviderConfig, identity.ZCodeProviderConfigSHA256); err != nil {
-			return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-		}
-		if err := verifyReadableSpawnIdentity(ctx, identity.ApplicationMetadata, identity.ApplicationMetadataSHA256); err != nil {
-			return ports.NewProviderVersionObservation(ports.ProviderVersionUnsafeIdentity, "")
-		}
 	}
 	version := safeExecutableVersion(stdout.Bytes())
 	if version == "" {
@@ -588,12 +544,6 @@ func (inspector *Inspector) ObserveReadableFileIdentity(ctx context.Context, nam
 	return observeReadableFileIdentity(ctx, name)
 }
 
-// ObserveApplicationMetadata descriptor-reads one exact Info.plist and binds
-// CFBundleShortVersionString to its stable content identity.
-func (inspector *Inspector) ObserveApplicationMetadata(ctx context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	return observeApplicationMetadata(ctx, name)
-}
-
 // ObserveNativeHomeIdentity captures one descriptor-bound native-home
 // identity without consulting ambient HOME state.
 func (inspector *Inspector) ObserveNativeHomeIdentity(ctx context.Context, path string) (ports.NativeHomeLaunchAuthority, error) {
@@ -660,156 +610,6 @@ func observeReadableFileIdentity(ctx context.Context, name string) (ports.FileId
 	return ports.NewFileIdentityObservation(name, true, name, "sha256:"+hex.EncodeToString(hash.Sum(nil)))
 }
 
-func observeApplicationMetadata(ctx context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	if err := observationContext(ctx, "application metadata observation"); err != nil {
-		return ports.ApplicationMetadataObservation{}, err
-	}
-	if !filepath.IsAbs(name) || filepath.Clean(name) != name {
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata path is not canonical absolute")
-	}
-	parentIdentity, err := canonicalDirectoryIdentity(filepath.Dir(name))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) {
-			return ports.ApplicationMetadataObservation{}, identityUnavailableFor(ports.IdentityObservationReasonUnreadable, "application metadata is unavailable")
-		}
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata parent directory is unsafe")
-	}
-	file, err := openCanonicalExecutable(name)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.EACCES) || errors.Is(err, unix.EPERM) {
-			return ports.ApplicationMetadataObservation{}, identityUnavailableFor(ports.IdentityObservationReasonUnreadable, "application metadata is unavailable")
-		}
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata descriptor open failed")
-	}
-	defer func() { _ = file.Close() }()
-	before, err := file.Stat()
-	if err != nil || !before.isRegular() || before.size <= 0 || before.size > maximumApplicationMetadataSize {
-		return ports.ApplicationMetadataObservation{}, identityUnavailableFor(ports.IdentityObservationReasonMalformed, "application metadata is not a bounded regular file")
-	}
-	contents, err := io.ReadAll(io.LimitReader(file, before.size+1))
-	if err != nil || int64(len(contents)) != before.size {
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata identity read failed")
-	}
-	after, err := file.Stat()
-	if err != nil || !before.stableSince(after) {
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata identity changed during read")
-	}
-	reopened, err := openCanonicalExecutable(name)
-	if err != nil {
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata identity changed during read")
-	}
-	reopenedSnapshot, statErr := reopened.Stat()
-	_ = reopened.Close()
-	if statErr != nil || !after.stableSince(reopenedSnapshot) {
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata identity changed during read")
-	}
-	parentAfter, err := canonicalDirectoryIdentity(filepath.Dir(name))
-	if err != nil || !parentIdentity.stableSince(parentAfter) {
-		return ports.ApplicationMetadataObservation{}, identitySecurity("application metadata parent directory changed")
-	}
-	version, err := applicationShortVersion(contents)
-	if err != nil {
-		return ports.ApplicationMetadataObservation{}, identityUnavailableFor(ports.IdentityObservationReasonMalformed, "application metadata version is malformed")
-	}
-	if err := observationContext(ctx, "application metadata observation"); err != nil {
-		return ports.ApplicationMetadataObservation{}, err
-	}
-	digest := sha256.Sum256(contents)
-	observation, err := ports.NewApplicationMetadataObservation(name, "sha256:"+hex.EncodeToString(digest[:]), version)
-	if err != nil {
-		return ports.ApplicationMetadataObservation{}, identityUnavailableFor(ports.IdentityObservationReasonMalformed, "application metadata version is malformed")
-	}
-	return observation, nil
-}
-
-func applicationShortVersion(contents []byte) (string, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(contents))
-	depth := 0
-	rootSeen := false
-	dictionarySeen := false
-	rootClosed := false
-	wantValue := false
-	versionKeySeen := false
-	version := ""
-	for {
-		token, err := decoder.Token()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-		switch value := token.(type) {
-		case xml.StartElement:
-			if rootClosed {
-				return "", errors.New("invalid application metadata root")
-			}
-			if depth == 0 {
-				if rootSeen || value.Name.Local != "plist" {
-					return "", errors.New("invalid application metadata root")
-				}
-				rootSeen = true
-				depth++
-				continue
-			}
-			if depth == 1 {
-				if dictionarySeen || value.Name.Local != "dict" {
-					return "", errors.New("invalid application metadata dictionary")
-				}
-				dictionarySeen = true
-				depth++
-				continue
-			}
-			if depth == 2 && wantValue {
-				if value.Name.Local != "string" || version != "" {
-					return "", errors.New("invalid application version value")
-				}
-				if err := decoder.DecodeElement(&version, &value); err != nil {
-					return "", err
-				}
-				wantValue = false
-				continue
-			}
-			if depth == 2 && value.Name.Local == "key" {
-				var key string
-				if err := decoder.DecodeElement(&key, &value); err != nil {
-					return "", err
-				}
-				if key == "CFBundleShortVersionString" {
-					if versionKeySeen {
-						return "", errors.New("duplicate application version")
-					}
-					versionKeySeen = true
-					wantValue = true
-				}
-				continue
-			}
-			depth++
-		case xml.EndElement:
-			if depth == 2 && value.Name.Local == "dict" {
-				if wantValue {
-					return "", errors.New("missing application version value")
-				}
-			}
-			if depth == 1 && value.Name.Local == "plist" {
-				rootClosed = true
-			}
-			depth--
-			if depth < 0 {
-				return "", errors.New("invalid application metadata nesting")
-			}
-		case xml.CharData:
-			if wantValue && strings.TrimSpace(string(value)) != "" {
-				return "", errors.New("invalid application version value")
-			}
-		}
-	}
-	if !rootSeen || !dictionarySeen || !rootClosed || depth != 0 || wantValue || version == "" || strings.TrimSpace(version) != version {
-		return "", errors.New("missing application version")
-	}
-	return version, nil
-}
-
 // ObserveExecutable provides legacy diagnostic version observation. Production
 // qualification uses ObserveExecutableIdentity and never invokes this path.
 func (inspector *Inspector) ObserveExecutable(ctx context.Context, name string) (ports.ExecutableObservation, error) {
@@ -846,33 +646,13 @@ func (SpawnVerifier) VerifyProviderSpawn(ctx context.Context, definition provide
 	if err := verifySpawnIdentity(ctx, definition.Executable(), definition.ExecutableSHA256()); err != nil {
 		return fmt.Errorf("executable: %w", err)
 	}
-	verifyLauncher := verifySpawnIdentity
-	if definition.Family() == providercli.FamilyZcode {
-		verifyLauncher = verifyReadableSpawnIdentity
-	}
-	if err := verifyLauncher(ctx, definition.Launcher(), definition.LauncherSHA256()); err != nil {
-		return fmt.Errorf("launcher: %w", err)
-	}
-	if definition.Family() == providercli.FamilyZcode {
-		if err := verifyReadableSpawnIdentity(ctx, definition.ZCodeProviderConfig(), definition.ZCodeProviderConfigSHA256()); err != nil {
-			return fmt.Errorf("provider config: %w", err)
-		}
-		if err := verifyReadableSpawnIdentity(ctx, definition.ApplicationMetadata(), definition.ApplicationMetadataSHA256()); err != nil {
-			return fmt.Errorf("application metadata: %w", err)
-		}
+	if definition.Launcher() != definition.Executable() || definition.LauncherSHA256() != definition.ExecutableSHA256() {
+		return fmt.Errorf("launcher: %w", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 	return nil
 }
 
 func verifySpawnIdentity(ctx context.Context, path, expectedHash string) error {
-	return verifyCurrentIdentity(ctx, path, expectedHash, true)
-}
-
-func verifyReadableSpawnIdentity(ctx context.Context, path, expectedHash string) error {
-	return verifyCurrentIdentity(ctx, path, expectedHash, false)
-}
-
-func verifyCurrentIdentity(ctx context.Context, path, expectedHash string, requireExecutable bool) error {
 	if err := observationContext(ctx, "provider spawn verification"); err != nil {
 		return err
 	}
@@ -885,11 +665,9 @@ func verifyCurrentIdentity(ctx context.Context, path, expectedHash string, requi
 	if err != nil || !before.isRegular() || before.size < 0 || before.size > maximumExecutableSize {
 		return errors.New("invalid descriptor")
 	}
-	if requireExecutable {
-		executable, err := file.EffectiveExecutable(before)
-		if err != nil || !executable {
-			return fmt.Errorf("%w: descriptor is not executable", ports.ErrProviderSpawnEnvironmentDrift)
-		}
+	executable, err := file.EffectiveExecutable(before)
+	if err != nil || !executable {
+		return fmt.Errorf("%w: descriptor is not executable", ports.ErrProviderSpawnEnvironmentDrift)
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, io.LimitReader(file, before.size+1)); err != nil {

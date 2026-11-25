@@ -58,7 +58,11 @@ protocols, hooks, fsmonitor and lazy fetch, and pins pagers to
 trusted `cat`. Coordinator source reads retain their independently hardened
 fixed commands.
 
-Collect complete role reports from correlated native assistant responses for protocol providers, and from post-`ESRCH` validated per-invocation staged files (published under `result_transport: "stdout"`) for terminal-runtime providers (Grok). Review providers never write into a copied source tree. Retain bounded process lifetimes, cancellation, diagnostics redaction, image handling, and existing content-size policy.
+Collect complete role reports for ZCode and Grok from per-invocation staged
+files after verified `ESRCH` teardown. Publish the accepted bytes under
+`result_transport: "stdout"`. The providers read the admitted original
+source. Process lifetimes, cancellation, diagnostic redaction, image handling
+and content limits follow the shared review contract.
 
 The public execution path uses a neutral reviewer home that admits current-user-owned directories without group
 or other write permissions and a safe, regular, single-link UTF-8 guide. It
@@ -79,6 +83,12 @@ win on overlap. The short directory must
 retain its admitted canonical identity, current-user ownership and private
 mode before and after execution. These public
 routes have no unguarded fallback or provider substitution.
+
+ZCode and Grok use the same isolated `herdr-core` runtime. ZCode's companion
+runs workspace review, extraction, and qualification with shell-free tool
+grants. Index and committed selectors that need Bash use the shared `B-1`
+controls below. Each pane stages its report in its own namespace. It cannot
+read or link files in another managed namespace.
 
 Grok runs through an isolated Mulgae-owned `herdr-core` terminal runtime (`PaneTTY`-only, OSC 7501 readiness/turn tracking) with disposable `HOME` and `GROK_HOME` (containing only a minimal `requirements.toml` and projected `0600` `.grok/auth.json`, with `~/.grok` remaining denied in `CredentialRoots`). Workspace review, extraction, and qualification run strictly shell-free (`--tools read_file,grep,list_dir,Write` for workspace review; `read_file,Write` for extraction/qualification). Index and commit reviews enable `Bash` (`read_file,grep,list_dir,Write,Bash`) strictly under all five `B-1` controls: (1) Seatbelt default-deny outbound Unix sockets (`network-outbound (remote unix-socket)`) with only a narrow literal system-resolver allowlist (`/private/var/run/mDNSResponder` by default), (2) localhost IP (TCP and UDP) denial (`network-outbound (remote ip "localhost:*")`), (3) 14 terminal secret-root plus 3 ancestor-literal denials, (4) sensitive-binary plus `WritableRoot`/`RuntimeTempRoot`/`ReadOnlyRoots` `process-exec` denials, and (5) post-`ESRCH` session-scoped plus same-UID profile-sentinel survivor checks and `mtime`/`ctime` stability checks before reading staged output. Staged prompts live read-only (`0400`) under `<scratch>/input/` (protected in `ReadOnlyRoots`) and staged outputs are validated strictly after `ESRCH` with a mandatory completion nonce before stripping and publishing under `result_transport: "stdout"`.
 

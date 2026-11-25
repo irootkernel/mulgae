@@ -652,34 +652,9 @@ func TestProviderCurrentQualifierRejectsIncompleteDuplicateAndMismatchedDirectEv
 
 func testCurrentQualificationRequest(t *testing.T, roles []domain.Role, base domain.Role) CurrentQualificationRequest {
 	t.Helper()
-	transport, err := providercli.NewRuntimeTransport(ports.ProviderPacketChannelProtocol, -1, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	configVar, err := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", "/private/config/zcode-builtin.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	electronVar, err := ports.NewEnvironmentVariable("ELECTRON_RUN_AS_NODE", "1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := providercli.NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
-		"zcode", "current-qualifier", "", "/private/bin/zcode",
-		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"/private/bin/zcode.cjs", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"/private/config/zcode-builtin.json", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		"zcode-default", "profile-generation", "policy-identity", []string{"/private/bin/zcode", "/private/bin/zcode.cjs"},
-		transport, []ports.EnvironmentVariable{configVar, electronVar}, "/private/work", time.Second,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	definition, _ := authorityProbeDefinition(t, FamilyZCode, "current-qualifier", "", "/private/work")
 	namespace := qualifierNamespace{instance: definition.Instance(), generation: "generation-1", policy: definition.RuntimeSafetyPolicyIdentity()}
-	profile := DiscoveredProviderProfile{
-		family: FamilyZCode, executable: definition.Executable(), launcher: definition.Launcher(),
-		sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
-	}
+	profile := testDiscoveredProfile(definition)
 	return CurrentQualificationRequest{
 		Profile: profile, Definition: definition, Namespace: namespace, RequestedRoles: append([]domain.Role(nil), roles...), BaseRole: base,
 		Identity: Identity{
@@ -978,7 +953,14 @@ func (r *authorityProbeTerminalRunner) RunTerminal(_ context.Context, req ports.
 	if outputPath == "" {
 		r.t.Fatalf("could not find probe.json path in initial input %q", req.InitialInput())
 	}
-	if err := os.WriteFile(outputPath, []byte(`{"root":"nonce","link":"linked","role":"logic"}`+"\n"), 0o600); err != nil {
+	body := `{"root":"nonce","link":"linked","role":"logic"}` + "\n"
+	for _, line := range strings.Split(string(promptBytes), "\n") {
+		if strings.HasPrefix(line, "MULGAE_COMPLETE:") {
+			body += line + "\n"
+			break
+		}
+	}
+	if err := os.WriteFile(outputPath, []byte(body), 0o600); err != nil {
 		r.t.Fatalf("write staged probe.json: %v", err)
 	}
 	binding, _ := req.Process().ProviderPacketBinding()
@@ -1040,8 +1022,8 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	t.Helper()
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	probeVersion := version
-	if version == "current" || (family == FamilyGrok && !providercli.VersionAtLeast(version, 1, 0, 89)) {
-		probeVersion = "0.16.5"
+	if version == "current" || (family == FamilyGrok && !providercli.VersionAtLeast(version, 1, 0, 89)) || (family == FamilyZCode && !providercli.VersionAtLeast(version, 0, 2, 0)) {
+		probeVersion = "0.2.0"
 		if family == FamilyGrok {
 			probeVersion = "1.0.89"
 		}
@@ -1051,55 +1033,52 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 		t.Fatal(err)
 	}
 	directory := filepath.Join(tempRoot, "snapshot-0123456789abcdef0123456789abcdef")
-	definition, syntheticNamespace := authorityProbeDefinition(t, family, instance, probeVersion, directory)
-	var namespace providercli.QualificationNamespace = syntheticNamespace
+	definition, _ := authorityProbeDefinition(t, family, instance, probeVersion, directory)
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	var terminalRunner ports.TerminalSessionRunner
-	if family == FamilyGrok {
-		nativeHome := filepath.Join(tempRoot, "native-home")
-		nsParent := filepath.Join(tempRoot, "namespaces")
-		if err := os.MkdirAll(filepath.Join(nativeHome, ".grok"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(nativeHome, ".grok", "auth.json"), []byte(`{"token":"test"}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		baseFactory, err := providercli.NewNamespaceFactory(nsParent)
-		if err != nil {
-			t.Fatal(err)
-		}
-		grokPolicy, err := providercli.RuntimeSafetyPolicyForFamily(providercli.CredentialSourceGrok)
-		if err != nil {
-			t.Fatal(err)
-		}
-		projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithPolicies(
-			baseFactory,
-			nativeHome,
-			map[string]providercli.CredentialSourceFamily{instance: providercli.CredentialSourceGrok},
-			map[string]providercli.RuntimeSafetyPolicy{instance: grokPolicy},
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		definition = authorityProbeGrokDefinitionWithPolicy(t, instance, probeVersion, directory, grokPolicy.Identity())
-		reg, err := providercli.NewRegistryWithNamespaceFactory(
-			&authorityProbeRunner{t: t, family: family, version: probeVersion},
-			projected,
-			definition,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _, _ = reg.Close(context.Background()) })
-		qn, ok := reg.QualificationNamespace(instance)
-		if !ok {
-			t.Fatalf("missing Grok qualification namespace for %s", instance)
-		}
-		namespace = qn
-		terminalRunner = &authorityProbeTerminalRunner{t: t}
+	nativeHome := filepath.Join(tempRoot, "native-home")
+	if err := os.MkdirAll(filepath.Join(nativeHome, ".grok"), 0o700); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(nativeHome, ".grok", "auth.json"), []byte(`{"token":"test"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	managedPath := filepath.Join(tempRoot, "managed")
+	if err := os.Mkdir(managedPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := ports.NewAnchoredRoot(managedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := providercli.NewManagedNamespaceFactory(filepath.Join(managedPath, "namespaces"), managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialFamily := providercli.CredentialSourceFamily(family)
+	policy, err := providercli.RuntimeSafetyPolicyForFamily(credentialFamily)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := providercli.NewCredentialProjectingNamespaceFactoryWithPolicies(base, nativeHome,
+		map[string]providercli.CredentialSourceFamily{instance: credentialFamily},
+		map[string]providercli.RuntimeSafetyPolicy{instance: policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providercli.NewRegistryWithNamespaceFactory(
+		&authorityProbeRunner{t: t, family: family, version: probeVersion}, projected, definition,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = reg.Close(context.Background()) })
+	namespace, ok := reg.QualificationNamespace(instance)
+	if !ok {
+		t.Fatalf("missing qualification namespace for %s", instance)
+	}
+	terminalRunner := &authorityProbeTerminalRunner{t: t}
 	workspace, err := ports.NewWorkspaceSnapshotIdentity(directory, "snapshot-0123456789abcdef0123456789abcdef", "sha256:"+authorityProbeDigest([]byte("workspace")), "qualification", 1, 2, 3, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -1126,7 +1105,7 @@ func currentProbeAuthorityInputForInstance(t *testing.T, family Family, instance
 	}
 	portReceipts := portCurrentProbeReceipts(result.Receipts)
 	receiptGen := namespace.Generation()
-	if family == FamilyGrok && receiptGen != "generation-1" {
+	if receiptGen != "generation-1" {
 		for index := range portReceipts {
 			if portReceipts[index].DirectExecutionAuthority == nil {
 				continue
@@ -1194,43 +1173,23 @@ func authorityProbeGrokDefinitionWithPolicy(t *testing.T, instance, version, wor
 
 func authorityProbeDefinition(t *testing.T, family Family, instance, version, workingDirectory string) (providercli.RuntimeDefinition, authorityProbeNamespace) {
 	t.Helper()
-	argvIndex := 4
-	channel, reference := ports.ProviderPacketChannelPromptFile, "@roadmap.md"
-	if family == FamilyZCode {
-		channel, argvIndex, reference = ports.ProviderPacketChannelProtocol, -1, ""
-	}
-	policy := string(family) + "-policy"
-	if family == FamilyGrok {
-		channel, argvIndex, reference = ports.ProviderPacketChannelTerminal, -1, ""
-		grokPolicy, err := providercli.RuntimeSafetyPolicyForFamily(providercli.CredentialSourceGrok)
-		if err != nil {
-			t.Fatal(err)
-		}
-		policy = grokPolicy.Identity()
-	}
-	transport, err := providercli.NewRuntimeTransport(channel, argvIndex, reference)
+	policy, err := (providercli.RuntimeBuilder{}).RuntimeSafetyPolicyIdentity(string(family))
 	if err != nil {
 		t.Fatal(err)
 	}
 	namespace := authorityProbeNamespace{instance: instance, generation: "generation-1", policy: policy, environment: authorityProbeEnvironment(t, family)}
 	executable := "/private/bin/" + string(family)
-	launcher := executable
-	baseArgv := []string{executable}
-	providerConfig, providerConfigSHA := "", ""
-	applicationVersion, applicationMetadata, applicationMetadataSHA := "", "", ""
+	digest := qualifierTestSHA
+	var companion ports.ZCodeCompanionObservation
 	if family == FamilyZCode {
-		executable = "/usr/bin/node"
-		launcher = "/private/bin/zcode.cjs"
-		baseArgv = []string{executable, launcher}
-		providerConfig, providerConfigSHA = "/private/config/zcode-builtin.json", "sha256:"+qualifierTestSHA
-		applicationVersion, applicationMetadata, applicationMetadataSHA = "3.12.3", "/Applications/ZCode.app/Contents/Info.plist", "sha256:"+qualifierTestSHA
+		companion = authorityTestZCodeCompanion(t, version)
+		executable, digest = companion.Executable, companion.ExecutableSHA256
 	}
 	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
-		Family: string(family), Instance: instance, Version: version, Executable: executable, ExecutableSHA256: qualifierTestSHA,
-		Launcher: launcher, LauncherSHA256: qualifierTestSHA, ZCodeProviderConfig: providerConfig, ZCodeProviderConfigSHA256: providerConfigSHA,
-		ApplicationVersion: applicationVersion, ApplicationMetadata: applicationMetadata, ApplicationMetadataSHA256: applicationMetadataSHA,
+		Family: string(family), Instance: instance, Version: version, Executable: executable, ExecutableSHA256: digest,
+		Launcher: executable, LauncherSHA256: digest, ZCodeCompanion: companion, ApplicationVersion: companion.AppVersion,
 		ProfileID: string(family) + "-profile", ProfileGeneration: "profile-1", RuntimeSafetyPolicyIdentity: policy,
-		BaseArgv: baseArgv, TransportChannel: transport.Channel(), TransportArgvIndex: transport.ArgvIndex(), TransportReference: transport.Reference(),
+		BaseArgv: []string{executable}, TransportChannel: ports.ProviderPacketChannelTerminal, TransportArgvIndex: -1,
 		WorkingDirectory: workingDirectory, Timeout: time.Second,
 	})
 	if err != nil {
@@ -1242,6 +1201,15 @@ func authorityProbeDefinition(t *testing.T, family Family, instance, version, wo
 	}
 	return definition, namespace
 }
+func testDiscoveredProfile(definition providercli.RuntimeDefinition) DiscoveredProviderProfile {
+	return DiscoveredProviderProfile{
+		family: Family(definition.Family()), executable: definition.Executable(), launcher: definition.Launcher(),
+		argv: definition.BaseArgv(), sha256: definition.ExecutableSHA256(), launcherSHA256: definition.LauncherSHA256(),
+		applicationVersion: definition.ApplicationVersion(), applicationVersionClassification: ClassifyZCodeApplicationVersion(definition.ApplicationVersion()),
+		zcodeCompanion: definition.ZCodeCompanion(), reason: "unqualified_discovery",
+	}
+}
+
 func authorityProbeEnvironment(t *testing.T, family Family) []ports.EnvironmentVariable {
 	t.Helper()
 	root := "/private/mulgae-provider-namespace"

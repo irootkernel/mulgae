@@ -78,6 +78,27 @@ func TestProductionInstanceFamiliesRegistersSyntheticGrokLogicWhenConfigured(t *
 	}
 }
 
+func TestProductionInstanceFamiliesRegistersSyntheticZCodeLogicWhenConfigured(t *testing.T) {
+	policies := testProductionRuntimeSafetyPolicies(t)
+	config := appconfig.Config{
+		Providers: appconfig.ProvidersConfig{ZCode: &appconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}},
+		Roles: appconfig.RolesConfig{
+			Security: appconfig.RoleConfig{Enabled: true, PrimaryProvider: "zcode"},
+		},
+	}
+	families, instancePolicies, _, err := productionInstanceFamilies(config, policies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]providercli.CredentialSourceFamily{
+		"zcode-logic": providercli.CredentialSourceZCode, "zcode-security": providercli.CredentialSourceZCode,
+	}
+	if !reflect.DeepEqual(families, want) ||
+		instancePolicies["zcode-logic"].Identity() != policies[reviewrun.FamilyZCode].Identity() {
+		t.Fatalf("synthetic ZCode heartbeat route did not receive the configured family policy: %v", families)
+	}
+}
+
 func TestProductionInstanceFamiliesOmitsGrokLogicWhenUnconfigured(t *testing.T) {
 	policies := testProductionRuntimeSafetyPolicies(t)
 	cfg := appconfig.Config{

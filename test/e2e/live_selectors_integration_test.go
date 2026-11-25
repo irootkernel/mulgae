@@ -50,15 +50,16 @@ func TestIntegrationIsolatedReleaseFixtureLiveSelectors(t *testing.T) {
 			}
 			if result.exitCode != 0 || envelope.Result.RunID == nil {
 				logFakeProviderPanic(t, project)
+				dumpRuntimeDiagnostics(t, project, envelope)
 				t.Fatalf("selector %v: %s %s", selector, result.stdout, result.stderr)
 			}
 			afterReviews := fakeZCodeReviewObservations(t, log)
 			if len(afterReviews) != beforeReviews+1 {
 				t.Fatalf("selector %v review launches = %d, want %d", selector, len(afterReviews)-beforeReviews, 1)
 			}
-			wantAllowlist := []string{"Read", "Bash"}
+			wantAllowlist := []string{"Read", "Bash", "Write"}
 			if selector[0] == "--workspace" {
-				wantAllowlist = []string{"Read", "Grep", "Glob", "Bash"}
+				wantAllowlist = []string{"Read", "Grep", "Glob", "Write"}
 			}
 			if got := afterReviews[len(afterReviews)-1].ToolAllowlist; !slices.Equal(got, wantAllowlist) {
 				t.Fatalf("selector %v toolAllowlist = %v, want %v", selector, got, wantAllowlist)
@@ -266,14 +267,47 @@ func TestIntegrationIsolatedReleaseFixtureLiveSelectors(t *testing.T) {
 			t.Fatalf("two-role ZCode review launches = %d, want 2", len(afterReviews)-beforeReviews)
 		}
 		for _, launch := range afterReviews[beforeReviews:] {
-			if !slices.Equal(launch.ToolAllowlist, []string{"Read", "Bash"}) {
-				t.Fatalf("two-role stage toolAllowlist = %v, want [Read Bash]", launch.ToolAllowlist)
+			if !slices.Equal(launch.ToolAllowlist, []string{"Read", "Bash", "Write"}) {
+				t.Fatalf("two-role stage toolAllowlist = %v, want [Read Bash Write]", launch.ToolAllowlist)
 			}
 		}
 	})
+	t.Run("ZCode heartbeat without a logic role route", func(t *testing.T) {
+		heartbeatProject := canonicalTestTempDir(t)
+		mustWriteTestFile(t, filepath.Join(heartbeatProject, "readme.md"), []byte("heartbeat fixture\n"))
+		initializeOfflineProvidersForRoles(t, binary, heartbeatProject, environment, "zcode", "security", bundle)
+		before := len(readFakeZCodeObservations(t, log))
+		observed := runMulgaeBinaryWithEnv(t, binary, heartbeatProject, environment,
+			"heartbeat", "--provider", "zcode", "--authorize-live-request", "--output", "json")
+		var envelope struct {
+			Result struct {
+				Heartbeat struct {
+					Attempted bool   `json:"attempted"`
+					Status    string `json:"status"`
+				} `json:"heartbeat"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(observed.stdout, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if observed.exitCode != 0 || !envelope.Result.Heartbeat.Attempted || envelope.Result.Heartbeat.Status != "succeeded" {
+			t.Fatalf("ZCode heartbeat failed: %s %s", observed.stdout, observed.stderr)
+		}
+		after := readFakeZCodeObservations(t, log)
+		if len(after) != before+1 || filepath.Base(after[before].Destination) != "probe.json" || !slices.Equal(after[before].ToolAllowlist, []string{"Read", "Write"}) {
+			t.Fatal("heartbeat did not use one shell-free terminal qualification")
+		}
+		if _, err := os.Lstat(after[before].Destination); !os.IsNotExist(err) {
+			t.Fatalf("heartbeat staged output survived cleanup: %v", err)
+		}
+	})
+
 	for _, launch := range fakeZCodeReviewObservations(t, log) {
-		if launch.CWD != filepath.Join(native, ".mulgae", "home") || launch.Destination != "" {
-			t.Fatalf("review left neutral native report posture: %+v", launch)
+		if launch.CWD != filepath.Join(native, ".mulgae", "home") || filepath.Base(launch.Destination) != "role-report.md" {
+			t.Fatalf("review used unexpected cwd or destination: %q, %q", launch.CWD, launch.Destination)
+		}
+		if _, err := os.Lstat(launch.Destination); !os.IsNotExist(err) {
+			t.Fatalf("staged review output survived cleanup: %v", err)
 		}
 	}
 }

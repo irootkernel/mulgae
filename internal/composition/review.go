@@ -506,6 +506,7 @@ func boundLocalitySpawnVerifier(ctx context.Context, inner providercli.SpawnVeri
 }
 
 type configuredProductionCandidateSource struct {
+	zcodeExclusions  []string
 	inspector        ports.EnvironmentInspector
 	config           adapterconfig.Config
 	policyIdentities map[reviewrun.Family]string
@@ -642,7 +643,7 @@ func (source *configuredProductionCandidateSource) productionCandidateSource(ctx
 	if provider := source.config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
 	}
-	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured)
+	profiles, err := reviewrun.DiscoverConfiguredProviderProfiles(ctx, source.inspector, configured, source.zcodeExclusions...)
 	if err != nil {
 		return nil, err
 	}
@@ -680,6 +681,11 @@ func (source *configuredProductionCandidateSource) newHeartbeatCandidate(ctx con
 		return reviewrun.QualifiedRunCandidate{}, err
 	}
 	heartbeatSource := *source
+	if family == reviewrun.FamilyZCode {
+		heartbeatSource.config.Providers.Grok = nil
+	} else {
+		heartbeatSource.config.Providers.ZCode = nil
+	}
 	heartbeatSource.providerTimeouts = cloneProviderTimeouts(source.providerTimeouts)
 	for configuredFamily, configuredTimeout := range heartbeatSource.providerTimeouts {
 		if configuredTimeout > time.Minute {

@@ -142,7 +142,11 @@ func composeProductionRuntimeGraph(
 	if err != nil {
 		return nil, err
 	}
-	namespaceRoot, err := privateReviewRoot(tempRoot, reviewNamespacePrefix)
+	managedParent, err := providercli.ManagedNamespaceParent()
+	if err != nil {
+		return nil, errors.Join(err, cleanupReviewCompositionRoots(true, ports.AnchoredRoot{}, workspaceRoot))
+	}
+	namespaceRoot, err := privateReviewRoot(managedParent.String(), reviewNamespacePrefix)
 	if err != nil {
 		cleanupErr := cleanupReviewCompositionRoots(true, ports.AnchoredRoot{}, workspaceRoot)
 		if cleanupErr != nil {
@@ -172,7 +176,7 @@ func composeProductionRuntimeGraph(
 		identities[family] = value.Identity()
 	}
 	candidates := &configuredProductionCandidateSource{
-		inspector: environment.NewInspector(), config: policy.config, policyIdentities: identities,
+		inspector: environment.NewInspector(), zcodeExclusions: []string{root.String(), workspaceRoot.String(), managedParent.String()}, config: policy.config, policyIdentities: identities,
 		providerTimeouts: cloneProviderTimeouts(policy.providerTimeouts), source: policy.source, attestor: policy.attestor,
 		staticRequest: policy.localityRequest, staticContext: policy.locality,
 	}
@@ -193,13 +197,13 @@ func composeProductionRuntimeGraph(
 		Clock:                clock,
 		LaunchBuilder:        processadapter.NewPaneLaunchBuilder(),
 		NativeHome:           nativeHomeRoot,
-		ExcludedResolveRoots: []string{root.String(), workspaceRoot.String(), namespaceRoot.String()},
+		ExcludedResolveRoots: []string{root.String(), workspaceRoot.String(), managedParent.String()},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("production graph: terminal session: %w", err)
 	}
 	graph.terminalSession = terminalSession
-	namespaces, err := providercli.NewNamespaceFactory(namespaceRoot.String())
+	namespaces, err := providercli.NewManagedNamespaceFactory(namespaceRoot.String(), managedParent)
 	if err != nil {
 		return nil, fmt.Errorf("production graph: namespaces: %w", err)
 	}
@@ -324,6 +328,10 @@ func productionInstanceFamilies(
 		default:
 			return nil, nil, nil, fmt.Errorf("production graph: invalid configured provider family %q", familyName)
 		}
+	}
+	if config.Providers.ZCode != nil {
+		instance := string(reviewrun.FamilyZCode) + "-" + string(domain.RoleLogic)
+		instanceFamilies[instance], instancePolicies[instance] = providercli.CredentialSourceZCode, policies[reviewrun.FamilyZCode]
 	}
 	if config.Providers.Grok != nil {
 		// Heartbeat qualifies the fixed synthetic logic candidate even when

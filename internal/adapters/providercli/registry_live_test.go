@@ -48,8 +48,8 @@ type liveCapabilityConfig struct {
 func TestLiveZCodeCapability(t *testing.T) {
 	config := liveCapabilityConfig{
 		family: providercli.FamilyZcode, credential: providercli.CredentialSourceZCode, instance: "zcode-security", role: domain.RoleSecurity,
-		appBundleEnv: "MULGAE_LIVE_ZCODE_APP_BUNDLE", transport: ports.ProviderPacketChannelProtocol, transportIndex: -1,
-		minimumVersion: [3]int{0, 16, 5},
+		appBundleEnv: "MULGAE_LIVE_ZCODE_APP_BUNDLE", transport: ports.ProviderPacketChannelTerminal, transportIndex: -1,
+		minimumVersion: [3]int{0, 2, 0},
 		protectedPaths: func(home, _ string) []string {
 			return []string{filepath.Join(home, ".zcode", "v2", "setting.json"), filepath.Join(home, ".zcode", "v2", "credentials.json")}
 		},
@@ -156,19 +156,15 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	}
 	runtimeHome := liveCapabilityDirectory(t, "installed user home", installed.HomeDir)
 	executable := ""
-	launcher := ""
-	zcodeProviderConfig := ""
-	applicationVersion := ""
-	applicationMetadata := ""
-	applicationMetadataSHA := ""
+	var companion ports.ZCodeCompanionObservation
 	if config.appBundleEnv != "" {
-		appBundle := liveCapabilityDirectory(t, config.appBundleEnv, os.Getenv(config.appBundleEnv))
-		profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(context.Background(), environmentadapter.NewInspector(), reviewrun.FamilyZCode, appBundle)
-		if discoverErr != nil || profile.Executable() == "" || profile.Launcher() == "" || profile.ZCodeProviderConfig() == "" || profile.ApplicationVersion() == "" || profile.ApplicationMetadata() == "" || profile.ApplicationMetadataSHA256() == "" {
-			t.Fatalf("%s production ZCode discovery: reason=%q error=%v", config.family, profile.Reason(), discoverErr)
+		appBundle := os.Getenv(config.appBundleEnv)
+		profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(t.Context(), environmentadapter.NewInspector(), reviewrun.FamilyZCode, appBundle)
+		companion = profile.ZCodeCompanion()
+		if discoverErr != nil || !companion.Valid() {
+			t.Fatalf("%s companion discovery: reason=%q error=%v", config.family, profile.Reason(), discoverErr)
 		}
-		executable, launcher, zcodeProviderConfig = profile.Executable(), profile.Launcher(), profile.ZCodeProviderConfig()
-		applicationVersion, applicationMetadata, applicationMetadataSHA = profile.ApplicationVersion(), profile.ApplicationMetadata(), profile.ApplicationMetadataSHA256()
+		executable = companion.Executable
 	} else {
 		executable = liveCapabilityFile(t, config.executableEnv, true)
 	}
@@ -211,8 +207,16 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespaceRoot := liveCapabilityTempDir(t)
-	baseNamespaces, err := providercli.NewNamespaceFactory(namespaceRoot)
+	managed, err := providercli.ManagedNamespaceParent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespaceRoot, err := os.MkdirTemp(managed.String(), "live-capability-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(namespaceRoot) })
+	baseNamespaces, err := providercli.NewManagedNamespaceFactory(namespaceRoot, managed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,27 +238,15 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	}
 
 	executableSHA := liveCapabilitySHA256(t, "provider executable", executable)
-	launcherSHA := executableSHA
-	zcodeProviderConfigSHA := ""
-	baseArgv := []string{executable}
-	if launcher != "" {
-		launcherSHA = liveCapabilitySHA256(t, "provider launcher", launcher)
-		zcodeProviderConfigSHA = liveCapabilitySHA256(t, "ZCode built-in provider config", zcodeProviderConfig)
-		baseArgv = append(baseArgv, launcher)
-	} else {
-		launcher = executable
-	}
-	transportChannel := config.transport
-	if transportChannel == "" {
-		transportChannel = ports.ProviderPacketChannelArgvLiteral
+	if companion.Valid() {
+		executableSHA = companion.ExecutableSHA256
 	}
 	definitionPort, err := (providercli.RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
 		Family: config.family, Instance: config.instance, Executable: executable, ExecutableSHA256: executableSHA,
-		Launcher: launcher, LauncherSHA256: launcherSHA, ProfileID: config.instance,
-		ZCodeProviderConfig: zcodeProviderConfig, ZCodeProviderConfigSHA256: zcodeProviderConfigSHA,
-		ApplicationVersion: applicationVersion, ApplicationMetadata: applicationMetadata, ApplicationMetadataSHA256: applicationMetadataSHA,
+		Launcher: executable, LauncherSHA256: executableSHA, ProfileID: config.instance,
+		ZCodeCompanion: companion, ApplicationVersion: companion.AppVersion,
 		ProfileGeneration: "live-family-capability-v1", RuntimeSafetyPolicyIdentity: policy.Identity(),
-		BaseArgv: baseArgv, TransportChannel: transportChannel, TransportArgvIndex: config.transportIndex,
+		BaseArgv: []string{executable}, TransportChannel: config.transport, TransportArgvIndex: config.transportIndex,
 		WorkingDirectory: "/private/var/empty", Timeout: 3 * time.Minute,
 	})
 	if err != nil {
@@ -273,7 +265,7 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 	verifier := environmentadapter.NewSpawnVerifier()
 	var terminalSession ports.TerminalSessionRunner
 	var terminalClosed bool
-	if config.family == providercli.FamilyGrok {
+	{
 		nativeHomeRoot, homeErr := ports.NewAnchoredRoot(runtimeHome)
 		if homeErr != nil {
 			t.Fatal(homeErr)
@@ -346,19 +338,8 @@ func certifyLiveCapability(t *testing.T, config liveCapabilityConfig) error {
 		if recording.requests[0].WorkingDirectory() != neutralHome {
 			t.Fatalf("%s version launch cwd = %q, want neutral %q", config.family, recording.requests[0].WorkingDirectory(), neutralHome)
 		}
-	} else {
-		if len(recording.requests) != 2 || len(recording.observations) != 2 {
-			t.Fatalf("%s launches = requests:%d observations:%d, want one version and one capability", config.family, len(recording.requests), len(recording.observations))
-		}
-		for _, request := range recording.requests {
-			if request.WorkingDirectory() != fixture.WorkspaceSnapshotIdentity().SnapshotPath() {
-				t.Fatalf("%s launch escaped the immutable capability fixture", config.family)
-			}
-		}
-		transport, ok := recording.observations[1].ProviderPacketTransportReceipt()
-		if !ok || !transport.Valid() || transport.Channel() != transportChannel {
-			t.Fatalf("%s capability transport receipt is invalid", config.family)
-		}
+	} else if len(recording.requests) != 0 || len(recording.observations) != 0 {
+		t.Fatalf("%s issued an unguarded version or capability launch", config.family)
 	}
 	liveCapabilityRequireReceipts(t, config.family, result.Receipts)
 

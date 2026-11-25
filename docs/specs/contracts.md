@@ -140,19 +140,18 @@ For ZCode, the local authority records only the canonical app bundle. The
 project authority may independently declare `model` and `reasoning_effort`.
 `model` is a provider-qualified Z.AI Individual Coding Plan selection such as
 `account:zai-individual-coding-plan/GLM-5.3`; either field may be omitted to
-preserve app-server's default for that dimension. Mulgae derives and binds the
-app-owned Electron runtime, bundled `zcode.cjs`, and built-in provider
-configuration, then launches app-server with `ELECTRON_RUN_AS_NODE=1`.
-
-Each invocation verifies that Z.AI and `individual-coding-plan` are current in
-`<native_user.home>/.zcode/v2/setting.json`, resolves the selected model against
-the bundled catalog, and reads only the current account profile and matching
-plan credential from `.zcode/v2/credentials.json`. It sends a secret-free
-`provider/updateAccountConfig` overlay before session creation and returns the
-API key only in response to app-server's
-`interaction/requestProviderRuntimeHeaders` request. Credentials are never
-projected into the disposable home. Mulgae does not read or convert
-`.zcode/cli/config.json`.
+preserve the current ZCode session setting for that dimension. Mulgae resolves
+the exact companion package and passes the app bundle as an opaque path.
+`herdr-zcode prepare-isolated` supplies the account and catalog for the current
+Z.AI Individual Coding Plan. Mulgae admits that projection against the
+qualified app release, account identity, and catalog revision and digest.
+Mulgae passes explicit model and effort unchanged, with no fallback model or
+provider. A model or effort selection refusal carries the diagnostic
+`zcode_model_selection`. An unavailable Desktop account or Keychain during
+preparation, or an authentication block reported by the pane, carries
+`zcode_account_configuration`. Both are typed configuration failures and
+yield exit 2 when they control the result. Security and cleanup failures
+retain their precedence.
 
 `mulgae init` creates both files in a new project. When a clone already has the
 shared file, init creates only the missing local file and rejects project-policy
@@ -184,7 +183,7 @@ project-policy URI. Configuration SHA-256 fields bind a domain-separated,
 ordered framing of both canonical files so a change to either authority changes
 the effective configuration identity. Provenance uses `project`, `local`,
 `default`, `provider`, and `code` sources. `provider` marks ZCode model and
-reasoning values left to app-server defaults.
+reasoning values left to the current ZCode session.
 
 The build-owned role document at `assets/roles.yaml` supplies the *initial*
 role-to-provider assignment and artist input defaults that `mulgae init` writes.
@@ -623,36 +622,23 @@ project-relative `role_report_uris` derived from the verified committed
 manifest inventory. Attempt `stdout.raw` remains private capture evidence and
 is never the primary report URI.
 
-`transport` is adapter-owned, not configurable. All current provider review
-invocations project accepted bytes under `transport: "stdout"`: protocol
-providers (ZCode) collect the complete accepted
-assistant message from correlated native protocol frames with no report-file
-write grant, while managed terminal providers (Grok) validate one per-invocation
-staged file inside private namespace scratch strictly after `ESRCH` teardown and
-project the accepted bytes as isolated `stdout`. Raw protocol frame streams and
-bounded post-kill terminal screen captures remain private process evidence.
+`transport` is adapter-owned. ZCode and Grok validate one staged report file
+inside private invocation scratch after verified `ESRCH` teardown. The
+accepted bytes are published under `transport: "stdout"` as isolated
+provider output. Raw process streams and bounded post-kill terminal screen
+captures stay private.
 Historical manifests retain their original `staged_file` or `stdout`
 transport value; neither implies a public `staged_file` publication contract.
 For a failed review invocation, model-authored stdout remains private process
 evidence but never classifies a native provider condition; stderr has that
 authority. Qualification may classify native failures from both stdout and
 stderr after a process failure or failed capability-proof validation.
-ZCode review and qualification invocations speak the ZCode app-server protocol:
-the adapter launches the app-owned Electron runtime as
-`[runtime, launcher, app-server, --stdio]` with `ELECTRON_RUN_AS_NODE=1` and
-delivers every packet inside one newline-delimited protocol conversation over
-the child's stdin and stdout, so no prompt, mode, or tool policy ever appears on the argv. The
-conversation's turn completion, not child exit, is the provider's terminal
-review fact. A protocol failure remains a provider failure when bounded process
-teardown ends the app server with SIGTERM; that signal does not invalidate the
-driver's recorded session receipts. Protocol stdout transcripts are never
-report content. When ZCode emits a quota marker with the generic
-`Turn execution failed` diagnostic, quota determines the typed outcome. When it
-emits the native `rate_limit_error` token or the recognized provider
-business-error marker with that generic diagnostic, the explicit marker
-determines the typed rate-limit outcome while the protocol session and process
-evidence remain attached. Other rate-limit prose does not override the generic
-turn-failure classification.
+ZCode runs review, extraction, qualification and heartbeat through the same
+managed `herdr-core` terminal profile. It launches `herdr-zcode` with a
+descriptor-verified prompt, explicit tool policy and blocked interaction.
+OSC 7501 reports startup and turn completion. Mulgae reads the declared
+staged output only after process-group absence and validates its completion
+nonce. Screen captures remain diagnostic evidence.
 
 Grok review, extraction, qualification, and heartbeat invocations run through
 Mulgae's isolated per-run `herdr-core` terminal runtime (`ProviderPacketChannelTerminal`,
@@ -815,13 +801,10 @@ Source admission uses safe closed reasons at `review.source`: `invalid_source`,
 exit 8; `source_unavailable` uses artifact exit 7. Native paths and Git diagnostics
 stay private. Cancellation and independent protected failures retain precedence.
 
-Malformed provider frames and general output decoding failures retain the
-`provider_output_decode_failed` reason. If a ZCode frame is valid and names the
-recognized `computer-use/operation-event` method but its payload cannot be
-decoded, Mulgae instead preserves `provider_protocol_event_decode_failed` in
-runtime diagnostics, the final review's failed role outcome, run-manifest
-failure records, CLI results, and MCP review-tool result reasons. Both reasons
-are fail-closed invalid-output outcomes and do not expose the provider transcript.
+Output decoding failures retain `provider_output_decode_failed` and fail
+closed. Historical records can retain `provider_protocol_event_decode_failed`
+for a malformed payload in a recognized ZCode app-server event. Neither
+reason exposes a provider transcript.
 
 If one of the commands without a rejected-request variant fails before a
 contract-valid request can be frozen, it returns the typed exit and human stderr
@@ -878,21 +861,29 @@ evaluates the current Config v5 project and local authorities.
 
 Each configured `provider_inventory[]` row reports `binary_available`,
 `cli_compatible`, and `application_compatible`. The application dimension is
-`not_applicable` outside ZCode. For ZCode it reports the independently observed
-`CFBundleShortVersionString`, minimum 3.12.3, and verified-latest 3.12.3;
-higher versions remain eligible as `newer_than_verified`.
-Binary observation revalidates the exact adapter-owned regular
-file through descriptor-safe identity and permission checks. ZCode requires an
-executable app-owned Electron runtime, a readable regular `.cjs` launcher, the
-launcher's readable built-in provider config, and descriptor-bound
-`Contents/Info.plist` metadata. The launcher and provider
-config do not require an executable bit. CLI compatibility runs only the admitted direct
-`[executable, "--version"]` or ZCode
-`[runtime, launcher, "--version"]` command with `ELECTRON_RUN_AS_NODE=1` in a
-disposable empty home, with no credential projection or project working
-directory. It emits the normalized observed version, current minimum and verified-latest guidance, eligibility,
-and compatibility. A version above `verified_latest` preserves the existing
-eligible policy while using compatibility `newer_than_verified`.
+`not_applicable` outside ZCode. The ZCode row uses
+`herdr-zcode --version --json` and `herdr-zcode --check-desktop --json`
+with a minimal host environment and the same optional bundle override. The
+companion reports the Desktop minimum. The verified combination is
+`herdr-zcode` 0.2.0 and Desktop 4.0.0. A version above its verified release remains
+eligible as `newer_than_verified`. Both terminal providers require an
+offline-verified `herdr-core` executable. ZCode companion failures use
+`herdr_zcode_missing`, `herdr_zcode_observation_failed`, or
+`herdr_zcode_unsafe_identity`. A verified package can still have an unavailable
+diagnostic. The respective compatibility field reports
+`herdr_zcode_cli_observation_failed` or `herdr_zcode_desktop_observation_failed`.
+The version command must advertise `core`, `osc7501`, `catalogFile`,
+`prepareIsolated`, and `checkDesktop`. The Desktop command reports its own
+minimum and compatibility. These checks run without reading the Keychain,
+preparing an account, calling the network or starting a terminal daemon.
+
+`herdr_zcode_unsafe_identity` is a security admission failure. Doctor reports
+`unsafe`, exit 8, and aggregate reason `provider_security_admission_failed`.
+Missing or unobservable companion readiness, including unavailable CLI or
+Desktop diagnostics, reports `unverified`, exit 4, and
+`provider_offline_readiness_failed` when no security admission failure takes
+precedence. An unavailable compatibility diagnostic does not erase verified
+package identity.
 
 A native-home mismatch after permitted provider observations returns a complete
 unsafe v9 diagnosis with `native_home_mismatch` and exit 8. Configured provider
@@ -913,10 +904,9 @@ offline readiness. `mulgae providers --output json` exposes the independent
 `offline_ready_provider_count` and `static_evidence_ready_provider_count`; its
 human static profiles remain `unverified` when no static source exists. A
 successful or failed live review never mutates these offline observations.
-The underlying `providers` service profile projection (`Result.JSON()`) reports
-`result_transport: "stdout"` for the current ZCode protocol profile and the
-Grok managed terminal profile, while the
-`mulgae providers --output json` CLI result retains its closed four-field summary.
+The underlying `providers` service profile projection (`Result.JSON()`)
+reports `result_transport: "stdout"` for both managed terminal profiles.
+`mulgae providers --output json` retains its closed four-field summary.
 
 Stable doctor reasons are grouped as follows:
 
@@ -924,8 +914,9 @@ Stable doctor reasons are grouped as follows:
 |---|---|
 | Config/local | `config_missing`, `local_config_missing`, `config_yaml_invalid`, `config_size_invalid`, `config_provider_timeout_invalid`, `config_credential_key_detected`, `config_credential_value_detected`, `config_locality_unsafe`, `config_locality_drifted`, `native_home_mismatch` |
 | Provider/role identity | `config_provider_identity_invalid`, `config_role_mapping_invalid` |
-| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `herdr_core_missing`, `herdr_core_unsafe_identity`, `herdr_core_observation_failed`, `zcode_launcher_missing`, `zcode_launcher_unreadable`, `zcode_launcher_observation_failed`, `zcode_launcher_unsafe_identity`, `zcode_provider_config_missing`, `zcode_provider_config_unreadable`, `zcode_provider_config_observation_failed`, `zcode_provider_config_unsafe_identity`, `zcode_application_metadata_unreadable`, `zcode_application_metadata_observation_failed`, `zcode_application_metadata_unsafe_identity`, `zcode_application_version_malformed`, `zcode_application_version_below_minimum`, `zcode_application_version_supported`, `zcode_application_version_newer_than_verified` |
-| CLI version | `provider_cli_version_supported`, `provider_cli_version_newer_than_verified`, `provider_cli_version_below_minimum`, `provider_cli_version_malformed`, `provider_cli_version_command_failed`, `provider_cli_version_timeout`, `provider_cli_version_unsafe_identity`, `provider_cli_version_observation_failed` |
+| Binary | `provider_executable_missing`, `provider_executable_not_executable`, `provider_binary_observation_failed`, `provider_executable_unsafe_identity`, `herdr_core_missing`, `herdr_core_unsafe_identity`, `herdr_core_observation_failed`, `herdr_zcode_missing`, `herdr_zcode_observation_failed`, `herdr_zcode_unsafe_identity` |
+| CLI version | `provider_cli_version_supported`, `provider_cli_version_newer_than_verified`, `provider_cli_version_below_minimum`, `provider_cli_version_malformed`, `provider_cli_version_command_failed`, `provider_cli_version_timeout`, `provider_cli_version_unsafe_identity`, `provider_cli_version_observation_failed`, `herdr_zcode_cli_observation_failed` |
+| Desktop version | `herdr_zcode_desktop_observation_failed`, `zcode_application_version_malformed`, `zcode_application_version_below_minimum`, `zcode_application_version_supported`, `zcode_application_version_newer_than_verified` |
 | Aggregate | `provider_offline_readiness_failed`, `provider_role_route_unavailable`, `provider_security_admission_failed` |
 
 The exact schema remains authoritative for additional locality reason codes
@@ -938,7 +929,10 @@ composition, credential access, or process execution. An authorized heartbeat
 discloses that authentication, network, cost, and remote logging may occur,
 uses a bounded provider timeout, and sends only Mulgae's immutable synthetic
 qualification fixture. It never includes repository source, diffs, review
-prompts, or user content. Status is one of `succeeded`, `provider_failure`,
+prompts, or user content. ZCode uses a synthetic `zcode-logic` route even
+when no configured role assigns logic to ZCode. It runs the same terminal
+qualification path in its own namespace without changing project configuration
+or borrowing review authority. Status is one of `succeeded`, `provider_failure`,
 `timeout`, `authentication_failure`, `malformed_response`, or
 `execution_failure`; `attempted` states whether the live request launch was
 reached. Stable heartbeat reasons are `live_authorization_required`,
@@ -1018,8 +1012,17 @@ any provider rejection or output failure without substituting another model or
 provider. New project initialization continues to write `grok-4.7` and `high`
 while existing Config v5 omission retains provider defaults independently.
 
-When Grok is configured, `mulgae doctor` inspects the `herdr-core` (`hc` /
-`herdr-core`) executable offline without starting any daemon and reports
+Mulgae resolves `herdr-zcode` through `MULGAE_HERDR_ZCODE_BIN` when set.
+An unsafe override fails closed. With no override, it searches safe `PATH`
+directories and then `<nativeHome>/.local/bin/herdr-zcode`. It verifies the canonical
+executable and its symlink chain, checks the package against excluded roots,
+and binds the SHA-256 digest of all 20 runtime files to the discovered identity.
+The aggregate hashes each manifest member's relative path, byte length and
+SHA-256 in manifest order. Mulgae revalidates the executable identity and
+complete package before each spawn and refuses drift.
+
+When ZCode or Grok is configured, `mulgae doctor` inspects the `herdr-core`
+(`hc` / `herdr-core`) executable offline without starting a daemon and reports
 additive readiness reasons when unavailable or unsafe:
 - `herdr_core_missing` (provider unavailable, exit code `4`) when no valid
   `hc` / `herdr-core` executable is found via `MULGAE_HERDR_CORE_BIN` or the
@@ -1042,8 +1045,8 @@ permissions granted to the invoking terminal or daemon process.
 `productionRuntimeGraph` owns the isolated `herdr-core` session lifecycle and
 always stops the core daemon and holder first during `cleanupRoots()` (skipping
 namespace-parent removal if exit is unproven) and on retained-cleanup failure
-paths, preventing background daemon leaks across CLI and MCP modes. ZCode never
-starts `herdr-core`.
+paths. Version discovery and doctor use offline diagnostics. Managed terminal
+invocations for either provider can start the graph's isolated daemon.
 
 Review qualification preserves private request packets and nonempty
 version/capability stdout and stderr under the diagnostic run before fixture
@@ -1069,83 +1072,65 @@ profile, with at most one bounded operational retry, then derives role admission
 for configured role routes that share that profile. Shareable profiles are equivalent across base argv, transport
 channel/reference/index, environment, working directory, lifecycle, ZCode model
 and reasoning effort, Grok settings identity, executable/launcher identity,
-ZCode app-bundle version/metadata and built-in provider-config identities, and
-runtime safety policy identity. ZCode qualification probes use the app-server
-protocol conversation in plan mode with every tool denied; their capability
-evidence is the conversation's captured assistant response text, read back
-through the protocol after the turn completes, and the protocol transcript on
-stdout is never evidence. Same-profile ZCode and Grok role instances share one
+ZCode companion package, optional bundle override and observed Desktop release,
+and runtime safety policy identity. ZCode qualification uses the same managed
+terminal profile and verifies the staged `probe.json` after teardown and a
+nonce check. The proof binds the verified core identity and Desktop
+preparation receipt. Same-profile ZCode and Grok role instances share one
 qualification probe and mint distinct destination-bound direct-execution
 authorities through `DeriveEquivalentRouteDirectExecutionAuthority`, while
 retaining independent per-instance namespaces for execution.
 Direct-execution authority construction and `Matches` bind
 `currentProbeRuntimeDefinitionIdentity` for the exact destination runtime,
 including instance, so application-layer identity rewriting cannot copy
-authority between instances or namespaces. Because sibling ZCode namespaces
-still establish their own `provider/updateAccountConfig`, `session/setModel`,
-and `session/setThoughtLevel` handshakes at execution time, any rejected or
-mismatched `account.revision`, unavailable model, or rejected thought level on
-a derived sibling surfaces as a typed configuration failure with zero
-publication authority.
-Required family probes are scheduled in original group order in batches that
-contain at most one group per family; a batch ends before the first repeated
-family, so no group moves past an earlier unresolved group. Distinct families
-within a batch may qualify concurrently. Same-family probes never overlap,
-and within each group per-candidate namespace qualification stays sequential
-with independent namespace authority. A fatal group failure prevents later
-batches from starting, and every started group's acquired namespaces are
-drained or explicitly retained exactly once. When no group fails fatally,
-routes, retained evidence and observations keep their original group order,
-and nonfatal qualification failures keep the existing nonfatal admission
-policy and canonical failure projection. A fatal qualification returns no
-qualified run or routes. Its failure is the
-started group's original error with the highest canonical failure precedence
-over its full cause tree, with original group order breaking ties; other
-group errors are not joined into it, and only the selected error's
-qualification observations are reported. Capability readiness is decided by bound
-immutable fixture evidence: free-form or narrated
-provider output is accepted when it proves immutable fixture nonce/input binding
-together with transport, lifecycle, authentication, version, and required
-process behavior, and mere prompt echo is rejected. A terminal JSON stdout frame
-is optional metadata, never a required result transport; when a frame is
-present, its integrity (framing policy, byte length, stdout digest, stability
-and termination timing, and packet-bound post-output signal receipts) is
-enforced fail-closed. Post-output cleanup retains one total one-second deadline;
-the SIGTERM grace is capped at half the remaining budget so escalation leaves
-time to join the process, readers, and stdout spooler. Receiving JSON alone
-does not bypass lifecycle or publication checks.
-Packet-transport, lifecycle, signal-receipt, and
-frame-integrity violations remain security-policy violations, while missing
-fixture binding or prompt echo is instead an operational invalid-provider-output
-capability rejection, not a security-policy violation. Capability packets embed
-those root/link/role bindings under `current-qualification-fixture-v4` and must
-not induce workspace or tool reads. The shared readiness prompt preserves line
-1 verbatim (`Prove readiness by returning exactly one JSON object and nothing
-else.`) and adds one neutral synthetic-test-identifier framing sentence before
-the `root=`/`link=`/`role=` bindings so random hex nonces do not trigger
-false-positive safety or credential-exfiltration refusals across active
-providers and `mulgae heartbeat`. Malformed JSON, duplicate keys, missing bindings, wrong
-binding types, and binding mismatches remain rejected. Review prompts own
-workspace-selective guidance. Invalid capability formatting,
-unbound fixture evidence, security-policy violations, and login-required
-responses are never retried; one transient operational probe failure (rate
-limit, quota, timeout, provider unavailable, or a typed provider execution
-failure) admits at most one additional probe on a freshly materialized fixture.
-When a zero-exit capability response fails fixture proof, an explicit native
-provider failure is classified through the existing typed failure vocabulary
-before retry policy is applied. Unbound or malformed output without such a
-failure remains invalid provider output; valid fixture proof is not rejected
-merely for mentioning a failure phrase.
-Each local capability invocation has a three-minute upper bound.
-Every acquired fixture is still drained exactly once, sibling role routes still
-derive from a single successful family probe, and the retried attempt is
-recorded as a rejected qualification observation carrying a retry mitigation.
-There is no durable project-local qualification cache and no path that mints
-direct-execution authority from project-local JSON; durable
-cross-process reuse is intentionally deferred because a forgeable self-hashed
-cache would weaken trust boundaries. Structured review JSON extraction remains
-optional: Mulgae may apply one constrained repair, then accept free-form primary
-role reports when structured validation does not succeed.
+authority between instances or namespaces. Each sibling rechecks the bound
+Desktop account and catalog when it prepares its own projection.
+
+Mulgae schedules family probes in original group order, in batches that
+contain at most one group per family. A batch ends before the first repeated
+family, so no group moves ahead of an earlier unresolved group. Distinct
+families in a batch may qualify concurrently. Same-family probes and the
+individual namespace admissions within a group run sequentially.
+
+A fatal group failure stops later batches. Every started group drains its
+acquired namespaces or explicitly retains cleanup authority. If all groups
+avoid fatal failure, routes, evidence and observations keep their original
+group order and nonfatal rejections use the ordinary admission policy. Fatal
+qualification produces no runnable routes. The highest canonical failure
+precedence across each started group's error tree determines the original error
+returned. Original group order breaks ties. Only the selected error's
+qualification observations are reported.
+
+Capability readiness requires immutable fixture evidence. The
+`current-qualification-fixture-v4` packet carries root, link and role bindings
+without asking the provider to read a workspace or use tools. Its first line is
+`Prove readiness by returning exactly one JSON object and nothing else.`
+A neutral sentence introduces the synthetic identifiers before the `root=`,
+`link=` and `role=` bindings. Heartbeat uses the same fixture contract.
+
+Mulgae verifies fixture binding with the required transport, authentication,
+version, lifecycle and process evidence. A free-form capability response may
+prove the same immutable binding. Prompt echo, malformed JSON, duplicate keys,
+wrong types, missing values and mismatches do not prove readiness. Provider
+packet, transport, lifecycle, signal receipt, and output integrity failures keep
+their protected classifications. A missing fixture binding or prompt echo
+alone is an operational invalid-output rejection.
+
+An invalid capability response, unbound fixture, security violation or login
+requirement does not authorize retry. One transient operational failure such
+as rate limit, quota, timeout, provider unavailability, or a typed execution
+failure can trigger one additional probe on a fresh fixture. If a zero-exit
+response misses fixture proof, any explicit native provider failure is classified
+before the retry decision. A valid fixture proof is eligible even if it mentions
+a failure phrase. Each capability invocation is capped at three minutes.
+Each fixture drains separately and the first rejected attempt records the retry
+mitigation.
+
+Qualification has no durable project-local cache. Project-local JSON cannot
+mint direct-execution authority. Structured JSON extraction from an accepted
+role report is optional. One constrained repair may correct structured output,
+and ordinary structured validation failure may leave the accepted free-form
+report. Protected failures still deny publication.
 
 ## Historical failed-run recovery sources
 

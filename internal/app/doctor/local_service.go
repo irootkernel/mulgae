@@ -184,7 +184,7 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 	if provider := config.Providers.Grok; provider != nil {
 		configured[reviewrun.FamilyGrok] = []string{provider.Executable}
 	}
-	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, service.dependencies.Inspector, configured)
+	profiles, discoveryErr := reviewrun.DiscoverConfiguredProviderProfiles(ctx, service.dependencies.Inspector, configured, root.String())
 	securityDiscoveryFamilies := make(map[reviewrun.Family]struct{})
 	for _, family := range reviewrun.ConfiguredProviderSecurityFamilies(discoveryErr) {
 		securityDiscoveryFamilies[family] = struct{}{}
@@ -217,44 +217,24 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 		}
 		if _, unsafeIdentity := securityDiscoveryFamilies[reviewrun.Family(family)]; unsafeIdentity {
 			row.State, row.Reason = "unavailable", "provider_executable_unsafe_identity"
-			switch profile.Reason() {
-			case "launcher_security_failure":
-				row.Reason = "zcode_launcher_unsafe_identity"
-			case "provider_config_security_failure":
-				row.Reason = "zcode_provider_config_unsafe_identity"
-			case "application_metadata_security_failure":
-				row.Reason = "zcode_application_metadata_unsafe_identity"
+			if family == "zcode" {
+				row.Reason = "herdr_zcode_unsafe_identity"
 			}
 			row.BinaryAvailable = LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{row.Reason}}
 			row.CLICompatible = LocalCLICompatibility{Status: "not_applicable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
 			base.ProviderInventory = append(base.ProviderInventory, row)
 			continue
 		}
-		if profile.Executable() == "" || profile.Launcher() == "" || profile.Family() == reviewrun.FamilyZCode && (profile.ZCodeProviderConfig() == "" || profile.ApplicationMetadata() == "" || profile.ApplicationVersion() == "") {
+		companion := profile.ZCodeCompanion()
+		if !companion.PackageVerified() && (profile.Executable() == "" || profile.Launcher() == "") {
 			reason := "provider_executable_missing"
 			switch profile.Reason() {
 			case "executable_not_executable":
 				reason = "provider_executable_not_executable"
 			case "executable_observation_failed":
 				reason = "provider_binary_observation_failed"
-			case "launcher_unreadable":
-				reason = "zcode_launcher_unreadable"
-			case "launcher_observation_failed":
-				reason = "zcode_launcher_observation_failed"
-			case "launcher_not_found":
-				reason = "zcode_launcher_missing"
-			case "provider_config_not_found":
-				reason = "zcode_provider_config_missing"
-			case "provider_config_unreadable":
-				reason = "zcode_provider_config_unreadable"
-			case "provider_config_observation_failed":
-				reason = "zcode_provider_config_observation_failed"
-			case "application_metadata_unreadable":
-				reason = "zcode_application_metadata_unreadable"
-			case "application_metadata_observation_failed":
-				reason = "zcode_application_metadata_observation_failed"
-			case "application_version_malformed":
-				reason = "zcode_application_version_malformed"
+			case "herdr_zcode_missing", "herdr_zcode_observation_failed":
+				reason = profile.Reason()
 			}
 			row.State, row.Reason = "unavailable", reason
 			row.BinaryAvailable = LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{reason}}
@@ -268,12 +248,16 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 			Status: "unverifiable", Eligibility: "not_evaluated", Compatibility: "not_observed",
 			MinimumVersion: guidance.Minimum, VerifiedLatest: guidance.VerifiedLatest, ReasonCode: "provider_cli_version_observation_failed",
 		}
-		if !nilInterface(service.dependencies.Versions) {
+		if family == "zcode" {
+			row.CLICompatible.ReasonCode = "herdr_zcode_cli_observation_failed"
+			observation, err := ports.NewProviderVersionObservation(ports.ProviderVersionObserved, companion.Version)
+			if err == nil {
+				row.CLICompatible = localCLICompatibility(reviewrun.FamilyZCode, guidance, observation)
+			}
+		} else if !nilInterface(service.dependencies.Versions) {
 			argv := append(profile.Argv(), "--version")
 			observation, observeErr := service.dependencies.Versions.ObserveProviderVersion(ctx, family, argv, ports.ProviderVersionIdentity{
 				ExecutableSHA256: profile.SHA256(), LauncherSHA256: profile.LauncherSHA256(),
-				ZCodeProviderConfig: profile.ZCodeProviderConfig(), ZCodeProviderConfigSHA256: profile.ZCodeProviderConfigSHA256(),
-				ApplicationMetadata: profile.ApplicationMetadata(), ApplicationMetadataSHA256: profile.ApplicationMetadataSHA256(),
 			})
 			if observeErr == nil {
 				row.CLICompatible = localCLICompatibility(reviewrun.Family(family), guidance, observation)
@@ -282,7 +266,7 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 		cliIdentityUnsafe := row.CLICompatible.ReasonCode == "provider_cli_version_unsafe_identity"
 		unsafeAdmission = unsafeAdmission || cliIdentityUnsafe
 		herdrReason := ""
-		if family == "grok" {
+		if family == "grok" || family == "zcode" {
 			if nilInterface(service.dependencies.TerminalRuntime) {
 				herdrReason = "herdr_core_observation_failed"
 			} else {
@@ -307,7 +291,8 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 				row.BinaryAvailable = LocalDiagnosticCheck{Status: "failed", ReasonCodes: []string{herdrReason}}
 			}
 		}
-		if row.CLICompatible.Eligibility == "eligible" && row.ApplicationCompatible.Eligibility != "ineligible" && herdrReason == "" {
+		applicationEligible := family != "zcode" || row.ApplicationCompatible.Eligibility == "eligible"
+		if row.CLICompatible.Eligibility == "eligible" && applicationEligible && herdrReason == "" {
 			eligible++
 			row.State, row.Reason = "eligible", row.CLICompatible.ReasonCode
 			if family == "zcode" {
@@ -315,7 +300,7 @@ func (service *LocalService) DiagnoseLocal(ctx context.Context, root ports.Ancho
 			}
 		} else {
 			row.State, row.Reason = "unavailable", row.CLICompatible.ReasonCode
-			if row.ApplicationCompatible.Eligibility == "ineligible" && !cliIdentityUnsafe {
+			if !applicationEligible && row.CLICompatible.Eligibility == "eligible" {
 				row.Reason = row.ApplicationCompatible.ReasonCode
 			}
 			if herdrReason == "herdr_core_unsafe_identity" && !cliIdentityUnsafe {
@@ -404,6 +389,15 @@ func localCLICompatibility(family reviewrun.Family, guidance reviewrun.VersionGu
 
 func localZCodeApplicationCompatibility(profile reviewrun.DiscoveredProviderProfile) LocalCLICompatibility {
 	guidance := reviewrun.ZCodeApplicationGuidance()
+	companion := profile.ZCodeCompanion()
+	if !companion.Valid() {
+		result := LocalCLICompatibility{Status: "unverifiable", Eligibility: "not_evaluated", Compatibility: "not_observed"}
+		if companion.PackageVerified() {
+			result.ReasonCode = "herdr_zcode_desktop_observation_failed"
+		}
+		return result
+	}
+	guidance.Minimum = companion.MinimumAppVersion
 	result := LocalCLICompatibility{
 		Status: "failed", ObservedVersion: profile.ApplicationVersion(), Eligibility: "ineligible", Compatibility: "malformed",
 		MinimumVersion: guidance.Minimum, VerifiedLatest: guidance.VerifiedLatest, ReasonCode: "zcode_application_version_malformed",

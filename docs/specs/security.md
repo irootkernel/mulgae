@@ -186,20 +186,19 @@ Git transport protocols. This does not rewrite caller configuration.
 
 ### Provider read and write boundaries
 
-Protocol providers (ZCode) produce all live reports from
-complete, correlated assistant turns and receive no report-file write grant for
-review, repair, or extraction. Managed terminal providers (Grok) stage one
-per-invocation output file inside their private namespace scratch directory
-(`role-report.md`, `extraction.json`, or `probe.json`), validated strictly after
-verified process-group absence (`ESRCH`) and projected under
-`result_transport: "stdout"`. Private namespaces and scratch are removed after
-verified provider drain.
+Managed terminal providers stage one output file per invocation inside their
+private namespace scratch directory. Mulgae validates it after verified
+process-group absence (`ESRCH`) and projects accepted bytes under
+`result_transport: "stdout"`. Private namespaces drain after terminal cleanup.
 
-- ZCode uses its app-owned Electron runtime and app-server launcher, fixed
-  protocol configuration and disabled write/plan tools. Review and extraction
-  require an outer Seatbelt guard; the adapter never falls back to an unguarded
-  launch. Fixed runtime preferences remain local-only. Unexpected interaction
-  requests, incomplete turns and protocol parse failures fail closed.
+- ZCode uses the verified `herdr-zcode` companion under the outer Seatbelt
+  boundary. Workspace reviews, qualification, and extraction use shell-free
+  tool grants. Index and commit selectors that need Bash use all five
+  `B-1` controls. The Herdr-specific `process-exec` deny matches only
+  `^(.*/)?(hc|herdr|herdr-core|herdr-app|herdrd)$`. The guard still denies
+  other sensitive executables, repository-hosted binaries, and protected
+  control-plane sockets. The completion nonce binds staged output to the
+  invocation.
 - Grok (`1.0.89` and newer) runs through an isolated per-run Mulgae-owned
   `herdr-core` terminal runtime inside the mandatory outer Seatbelt guard and
   admits text roles only. Each pane launches through Mulgae's integrity-bound
@@ -279,19 +278,23 @@ policy at `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`,
 credentials, provider homes, any other `.mulgae/` artifacts, or exported review
 bundles.
 
-ZCode admission binds its app's v2 desktop state and current Z.AI Individual
-Coding Plan account. Legacy CLI config is not live authentication authority.
-On macOS arm64, Mulgae reads `enc:v2:os` values using the pinned ZCode
-executable from its verified app bundle and an open descriptor for a
-signature-verified private copy of the bundled Keychain module. Mulgae
-verifies both signatures once per credential request and reuses the module
-descriptor for the profile and API key reads. Each launch rechecks the
-descriptor, executable, and app metadata. The helper authenticates the
-ciphertext using the path-bound Keychain item and returns the selected
-credential through a private pipe. The encryption key stays in the helper.
-Mulgae runs signature verification and the helper on the trusted host side.
-Read or verification failures reject qualification or the affected runtime
-header request. Plaintext and `enc:v1` remain supported.
+Before opening a ZCode pane, Mulgae runs the verified companion's
+`prepare-isolated` on the host outside Seatbelt. It uses
+`/private/var/empty` as cwd, the installed user's `HOME`,
+`PATH=/usr/bin:/bin`, `TMPDIR=/tmp`, and a 15-second budget that includes
+teardown. The companion prepares the Desktop account and catalog in an
+invocation-owned directory. Mulgae admits only an owner-private `0600`
+`auth.json` and a `0400` `catalog.json`. It uses descriptor-relative
+`O_NOFOLLOW` opens and checks ownership, regular-file and single-link
+identity, the account binding, and the catalog revision and SHA-256.
+
+The pane receives `--consume-auth-file` and consumes the projected auth
+before the first prompt. Mulgae arms namespace drain before preparation so it
+can zero and unlink any unconsumed auth after teardown. Seatbelt denies reads,
+writes and links to native `~/.zcode` and `~/Library/Keychains`. The managed
+namespace guard denies data reads and hard links into other namespaces across
+families and runs. Its exception is the current pane's writable namespace.
+
 Admitted provider state is projected only through the adapter-owned disposable
 namespace. Cleanup zeroes credential content only through a verified single-link
 regular descriptor on the namespace device with the expected owner. Unsafe
@@ -371,12 +374,12 @@ and `--requirements` extraction omits the top-level `findings` key while
 keeping `requirements` intact (running `ReviewValidator.Validate`
 unconditionally so protected validator, scope, or context failures still fail
 closed, while ordinary missing-`findings` fallback preserves verified
-requirements and `stdout.raw` with `nil` structured candidate capture). That invocation gets the same
-read-only live source authority and always publishes through `stdout` transport
-(protocol providers receive no report-file write grant and return on stdout;
-managed terminal providers such as Grok stage `extraction.json` shell-free
-inside private namespace scratch, validate it post-`ESRCH` with its completion
-nonce, and project the accepted bytes as isolated `stdout`). It cannot emit identity, verification, coverage, or publication state,
+requirements and `stdout.raw` with `nil` structured candidate capture). The
+invocation keeps the same read-only live source authority. ZCode and Grok run
+extraction shell-free and write `extraction.json` inside private namespace
+scratch. After verified `ESRCH`, Mulgae checks the file and completion nonce
+and projects the accepted bytes as isolated `stdout`. The provider cannot
+emit identity, verification, coverage, or publication state,
 and Mulgae rather than the provider owns the resulting completeness and
 limitations. Only a bounded extraction failure is absorbed into the accepted report. A
 protected failure observed during that invocation keeps its canonical

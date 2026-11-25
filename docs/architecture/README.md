@@ -285,9 +285,8 @@ undrained namespace children before closing reviewer-home or workspace ownership
    metadata, with framed untrusted context/objective and no copied source tree.
 6. Qualification uses Mulgae-owned synthetic fixtures. Each invocation owns its
    isolated credentials/scratch and mandatory native source restrictions.
-7. The runtime collects a complete correlated protocol assistant report for
-   protocol providers or a post-`ESRCH` validated staged output (projected under
-   `result_transport: "stdout"`) for managed terminal providers. Optional
+7. The runtime validates each staged result after `ESRCH` and projects accepted
+   bytes under `result_transport: "stdout"`. Optional
    same-provider repair or extraction shares the one second slot; protected
    failures retain precedence and deny publication.
 8. Live evidence is checked against its declared source side, preserving selected
@@ -308,12 +307,6 @@ reads its safe regular guide once. `reviewrun` loads the common guidance and
 Workspace reads use original paths; index and committed reads use fixed Git
 operands and a deterministic environment.
 
-Within `providercli`, `protocol_mechanics.go` owns diagnostic-ID sanitization
-and string-response matching for ZCode. Family adapters retain request prefixes,
-outstanding state, wire parsing and the consequences of an invalid authoritative
-identifier. Cancellation, EOF and process-exit rules remain local, including
-ZCode's accepted post-turn stream end.
-
 `terminal_provider.go` owns the reusable provider-agnostic managed terminal
 execution driver over `ports.TerminalSessionRunner` (supporting both OSC 7501
 and non-OSC terminal profiles, single- or multi-home disposable profiles,
@@ -330,13 +323,13 @@ watchdog, and JSON-RPC lifecycle; `productionRuntimeGraph` is the sole owner of
 `terminalSession.Close()` (invoked first in `cleanupRoots()` and explicitly on
 the retained-cleanup error branch of `StartReviewRun`), while `Registry` and
 `CurrentProbe` borrow the session runner and `Registry.Close` drains only its
-own labeled panes. ZCode never starts `herdr-core`.
+own labeled panes. `zcode_terminal_darwin.go` wraps the exact companion package
+and binds its Desktop preparation receipt to qualification and execution.
 
 `providercli` binds the sealed invocation to a descriptor for the neutral cwd,
-retains per-invocation credential and scratch namespaces, and collects complete
-correlated assistant reports for protocol providers or post-`ESRCH` validated
-staged reports (published as `result_transport: "stdout"`) for terminal-runtime
-providers. ZCode and Grok require the process adapter's outer Seatbelt policy
+retains per-invocation credential and scratch namespaces and accepts verified
+staged output after process teardown. The Seatbelt boundary denies data reads
+and links into other managed namespaces. ZCode and Grok require the process adapter's outer Seatbelt policy
 for both live review and extraction, and both providers deny shared `herdr-core`
 control-plane roots and sockets. Seatbelt denies source,
 Git and guide writes and credential reads, writes and links. It also denies

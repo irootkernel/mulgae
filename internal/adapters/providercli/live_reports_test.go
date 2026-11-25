@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,10 +16,12 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	filesystemadapter "github.com/irootkernel/mulgae/internal/adapters/filesystem"
 	gittargetadapter "github.com/irootkernel/mulgae/internal/adapters/gittarget"
 	herdradapter "github.com/irootkernel/mulgae/internal/adapters/herdr"
 	processadapter "github.com/irootkernel/mulgae/internal/adapters/process"
 	runtimeadapter "github.com/irootkernel/mulgae/internal/adapters/runtime"
+	workspaceadapter "github.com/irootkernel/mulgae/internal/adapters/workspace"
 	"github.com/irootkernel/mulgae/internal/app/prompt"
 	"github.com/irootkernel/mulgae/internal/app/reviewrun"
 	"github.com/irootkernel/mulgae/internal/builtin"
@@ -81,12 +84,8 @@ func TestLiveNeutralReviewReports(t *testing.T) {
 			if strings.Contains(report, fixture.tokens["worktree"]) || strings.TrimSpace(report) == "HOSTILE_GUIDE_EXECUTED" || strings.TrimSpace(report) == "ANCESTOR_GUIDE_EXECUTED" {
 				t.Fatal("wrong source side or hostile instruction execution")
 			}
-			if family == FamilyGrok {
-				if !observation.ProcessObservation().TerminalSessionCompleted() {
-					t.Fatal("missing Grok terminal session completion")
-				}
-			} else if !observation.ProcessObservation().ProtocolConversationCompleted() {
-				t.Fatal("missing native conversation completion")
+			if !observation.ProcessObservation().TerminalSessionCompleted() {
+				t.Fatal("missing terminal session completion")
 			}
 		})
 	}
@@ -119,10 +118,7 @@ func TestLiveNeutralExtractionReports(t *testing.T) {
 			observation, err := registry.Observe(ctx, invocation)
 			fixture.assertUnchanged(t)
 			result, available := observation.Result()
-			completed := observation.ProcessObservation().ProtocolConversationCompleted()
-			if family == FamilyGrok {
-				completed = observation.ProcessObservation().TerminalSessionCompleted()
-			}
+			completed := observation.ProcessObservation().TerminalSessionCompleted()
 			if err != nil || observation.Status() != ports.ProviderExecutionStatusSucceeded || !available || result.InputIdentity() != invocation.InputIdentity() || !strings.Contains(string(result.Stdout()), "COMPLETE_EXTRACTION_REPORT") || !completed {
 				t.Fatalf("native extraction report: status=%s diagnostic=%s error=%v", observation.Status(), observation.DiagnosticCode(), err)
 			}
@@ -150,7 +146,16 @@ func liveReportExecution(t *testing.T, ctx context.Context, family string, fixtu
 			t.Error(err)
 		}
 	})
-	credentialRoots := []ports.AnchoredRoot{liveReportRoot(t, filepath.Join(mustLiveGrokHome(t), ".grok"))}
+	nativeHome := liveReportNativeHome(t, family)
+	var credentialRoots []ports.AnchoredRoot
+	if family == FamilyZcode {
+		credentialRoots = []ports.AnchoredRoot{
+			liveReportRoot(t, filepath.Join(nativeHome, ".zcode")),
+			liveReportRoot(t, filepath.Join(nativeHome, "Library", "Keychains")),
+		}
+	} else {
+		credentialRoots = []ports.AnchoredRoot{liveReportRoot(t, filepath.Join(nativeHome, ".grok"))}
+	}
 	adapter, err := gittargetadapter.NewLiveSourceAdapter(gittargetadapter.NewExecRunner(), credentialRoots)
 	if err != nil {
 		t.Fatal(err)
@@ -175,76 +180,145 @@ func liveReportExecution(t *testing.T, ctx context.Context, family string, fixtu
 	return execution
 }
 
+func liveReportNativeHome(t *testing.T, family string) string {
+	t.Helper()
+	if family != FamilyZcode {
+		return mustLiveGrokHome(t)
+	}
+	installed, err := user.Current()
+	if err != nil || installed == nil {
+		t.Fatal("ZCode installed home unavailable")
+	}
+	return installed.HomeDir
+}
+
 func liveReportRegistry(t *testing.T, family, instance string, fixture liveSourceProbeFixture) *Registry {
 	t.Helper()
-	executable := ""
-	var argv []string
-	var configured []ports.EnvironmentVariable
-	sourceFamily := CredentialSourceFamily(family)
-	sourceRoots := make(map[string]string)
-	switch family {
-	case FamilyZcode:
-		executable = "/Applications/ZCode.app/Contents/MacOS/ZCode"
-		argv = []string{executable, "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs"}
-		for name, value := range map[string]string{"ELECTRON_RUN_AS_NODE": "1", "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE": "/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json"} {
-			configured = append(configured, mustEnvironment(t, name, value))
+	var executable, executableSHA string
+	var companion ports.ZCodeCompanionObservation
+	nativeHome := liveReportNativeHome(t, family)
+	if family == FamilyZcode {
+		pkg, err := herdradapter.ResolveZCodePackage(herdradapter.DefaultZCodeResolveOptions(nativeHome, fixture.source))
+		if err != nil {
+			t.Fatal(err)
 		}
-	case FamilyGrok:
-		executable = copyLiveGrokExecutable(t, filepath.Join(mustLiveGrokHome(t), ".grok", "bin", "grok"))
-		argv = []string{executable}
-	default:
-		t.Fatal("unsupported live report family")
+		bundle := os.Getenv("MULGAE_LIVE_ZCODE_APP_BUNDLE")
+		if err := herdradapter.VerifyZCodeAppBundle(bundle, fixture.source); err != nil {
+			t.Fatal(err)
+		}
+		desktop, err := herdradapter.ObserveZCodeCompanion(t.Context(), pkg, bundle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		executable, executableSHA = pkg.Launcher.Path, pkg.Launcher.SHA256
+		companion = ports.ZCodeCompanionObservation{
+			Executable: executable, ExecutableSHA256: executableSHA, PackageSHA256: pkg.PackageSHA256,
+			Version: desktop.Version, AppVersion: desktop.AppVersion, AppBundle: desktop.AppBundle,
+			BundleOverride: bundle, MinimumAppVersion: desktop.MinimumVersion,
+		}
+	} else {
+		executable = copyLiveGrokExecutable(t, filepath.Join(nativeHome, ".grok", "bin", "grok"))
+		resolved, err := herdradapter.ResolveExecutable(herdradapter.ResolveOptions{OverridePath: executable, HasOverride: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		executableSHA = resolved.SHA256
 	}
-	base, err := NewNamespaceFactory(mustCanonicalLiveTempDir(t))
+	parent, err := ManagedNamespaceParent()
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := os.MkdirTemp(parent.String(), "live-report-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(root) })
+	base, err := NewManagedNamespaceFactory(root, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceFamily := CredentialSourceFamily(family)
 	policy, err := RuntimeSafetyPolicyForFamily(sourceFamily)
 	if err != nil {
 		t.Fatal(err)
 	}
-	factory, err := NewCredentialProjectingNamespaceFactoryWithProjectRoot(base, mustLiveGrokHome(t), fixture.source, map[string]CredentialSourceFamily{instance: sourceFamily}, map[string]RuntimeSafetyPolicy{instance: policy}, nil, sourceRoots)
+	factory, err := NewCredentialProjectingNamespaceFactoryWithProjectRoot(base, nativeHome, fixture.source,
+		map[string]CredentialSourceFamily{instance: sourceFamily}, map[string]RuntimeSafetyPolicy{instance: policy}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := NewProductionRuntimeDefinition(family, instance, "", executable, "", instance, argv, configured, fixture.neutral, 3*time.Minute)
+	definitionPort, err := (RuntimeBuilder{}).BuildProductionRuntime(ports.ProviderRuntimeSpec{
+		Family: family, Instance: instance, Executable: executable, ExecutableSHA256: executableSHA,
+		Launcher: executable, LauncherSHA256: executableSHA, ProfileID: instance, ProfileGeneration: "live-report",
+		RuntimeSafetyPolicyIdentity: policy.Identity(), ZCodeCompanion: companion, ApplicationVersion: companion.AppVersion,
+		BaseArgv: []string{executable}, TransportChannel: ports.ProviderPacketChannelTerminal, TransportArgvIndex: -1,
+		WorkingDirectory: fixture.neutral, Timeout: 3 * time.Minute,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if family == FamilyZcode {
-		definition.zcodeProviderConfig = "/Applications/ZCode.app/Contents/Resources/config/provider/zcode-builtin.json"
-	}
+	definition := definitionPort.(RuntimeDefinition)
 	runner, err := processadapter.NewRunner(runtimeadapter.SystemClock{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	session, err := herdradapter.NewSession(herdradapter.SessionOptions{
+		Clock: runtimeadapter.SystemClock{}, LaunchBuilder: processadapter.NewPaneLaunchBuilder(),
+		NativeHome: liveReportRoot(t, nativeHome),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := session.Close(cleanupCtx); err != nil {
+			t.Errorf("close terminal session: %v", err)
+		}
+	})
 	registry, err := NewRegistryWithNamespaceFactory(runner, factory, definition)
 	if err != nil {
-		t.Fatal(fmt.Errorf("native registry: %w", err))
+		t.Fatal(err)
 	}
-	if family == FamilyGrok {
-		nativeHome, homeErr := ports.NewAnchoredRoot(mustLiveGrokHome(t))
-		if homeErr != nil {
-			t.Fatal(homeErr)
+	t.Cleanup(func() { _, _ = registry.Close(context.Background()) })
+	registry.terminalRunner = liveReportTerminalInspection{inner: session, t: t, neutral: fixture.neutral}
+	if family == FamilyZcode {
+		materializer, err := workspaceadapter.NewMaterializer(liveReportRoot(t, mustCanonicalLiveTempDir(t)), filesystemadapter.NewContentDetector())
+		if err != nil {
+			t.Fatal(err)
 		}
-		session, sessionErr := herdradapter.NewSession(herdradapter.SessionOptions{
-			Clock:         runtimeadapter.SystemClock{},
-			LaunchBuilder: processadapter.NewPaneLaunchBuilder(),
-			NativeHome:    nativeHome,
+		fixtures, err := NewProbeFixtureLeaseFactory(materializer, SecureProbeNonceGenerator{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture, err := fixtures.Acquire(t.Context(), domain.RoleLogic)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _, _ = fixture.DrainTerminal(context.Background()) }()
+		namespace, ok := registry.QualificationNamespace(instance)
+		if !ok {
+			t.Fatal("live report qualification namespace unavailable")
+		}
+		probe, err := NewCurrentProbeWithTerminalRunner(runner, testSpawnVerifier{}, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := probe.QualifyCurrent(t.Context(), CurrentProbeRequest{
+			Definition: definition, Namespace: namespace, Fixture: fixture, Invocation: NativeProbeInvocation{}, Now: time.Now().UTC(), TTL: time.Minute,
 		})
-		if sessionErr != nil {
-			t.Fatal(sessionErr)
+		if err != nil {
+			t.Fatal(err)
 		}
-		registry.terminalRunner = liveReportTerminalInspection{inner: session, t: t, neutral: fixture.neutral}
-		t.Cleanup(func() {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cleanupCancel()
-			if closeErr := session.Close(cleanupCtx); closeErr != nil {
-				t.Errorf("close Grok terminal session: %v", closeErr)
+		for _, receipt := range result.Receipts {
+			if receipt.DirectExecutionAuthority != nil {
+				if err := registry.BindProviderQualification(definition, receipt.DirectExecutionAuthority, result.Version, []domain.Role{domain.RoleLogic}); err != nil {
+					t.Fatal(err)
+				}
+				break
 			}
-		})
+		}
 	}
-	registry.runner = liveReportProcessInspection{inner: runner, t: t, family: family, neutral: fixture.neutral}
 	return registry
 }
 
@@ -265,21 +339,22 @@ func (inspection liveReportTerminalInspection) RunTerminal(ctx context.Context, 
 		inspection.t.Fatal("native terminal live execution omitted the required outer guard")
 	}
 	if !boundary.PaneTTY() || boundary.OwnedPTY() {
-		inspection.t.Fatal("Grok terminal boundary must enable PaneTTY without OwnedPTY")
+		inspection.t.Fatal("terminal boundary must enable PaneTTY without OwnedPTY")
 	}
-	if _, runtimeTemp := boundary.RuntimeTempRoot(); runtimeTemp {
-		inspection.t.Fatal("native runtime directory exception belongs only to ZCode")
+	isZCode := filepath.Base(proc.Executable()) == "herdr-zcode"
+	if _, runtimeTemp := boundary.RuntimeTempRoot(); runtimeTemp != isZCode {
+		inspection.t.Fatal("unexpected terminal runtime directory exception")
 	}
 	hasBashTool := false
 	argv := proc.Argv()
 	for i := 0; i+1 < len(argv); i++ {
-		if argv[i] == "--tools" && strings.Contains(argv[i+1], "Bash") {
+		if (argv[i] == "--tools" || argv[i] == "--tool-allowlist") && strings.Contains(argv[i+1], "Bash") {
 			hasBashTool = true
 			break
 		}
 	}
 	if hasBashTool != boundary.BashGate() {
-		inspection.t.Fatalf("Grok terminal Bash tool (%t) must match B-1 BashGate (%t)", hasBashTool, boundary.BashGate())
+		inspection.t.Fatalf("terminal Bash tool (%t) must match B-1 BashGate (%t)", hasBashTool, boundary.BashGate())
 	}
 	return inspection.inner.RunTerminal(ctx, request)
 }
@@ -376,32 +451,4 @@ func runGrokSeatbeltKernelProbe(t *testing.T, ctx context.Context, request ports
 		exitCode = exitErr.ExitCode()
 	}
 	return exitCode, string(out), nil
-}
-
-type liveReportProcessInspection struct {
-	inner           *processadapter.Runner
-	t               *testing.T
-	family, neutral string
-}
-
-func (inspection liveReportProcessInspection) Run(ctx context.Context, request ports.ProcessRequest) (ports.ProcessObservation, error) {
-	return inspection.inner.Run(ctx, request)
-}
-
-func (inspection liveReportProcessInspection) Converse(ctx context.Context, request ports.ProcessRequest, driver ports.ProviderSessionDriver) (ports.ProcessObservation, error) {
-	directory, root, bound := request.LaunchDirectory()
-	if request.WorkingDirectory() != inspection.neutral || !bound || directory == nil || root.String() != inspection.neutral {
-		inspection.t.Fatal("native launch lost the neutral directory binding")
-	}
-	boundary, guarded := request.LiveReadOnlyBoundary()
-	if inspection.family == FamilyZcode || inspection.family == FamilyGrok {
-		if !guarded {
-			inspection.t.Fatal("native live execution omitted the required outer guard")
-		}
-		_, runtimeTemp := boundary.RuntimeTempRoot()
-		if runtimeTemp != (inspection.family == FamilyZcode) {
-			inspection.t.Fatal("native runtime directory exception belongs only to ZCode")
-		}
-	}
-	return inspection.inner.Converse(ctx, request, driver)
 }

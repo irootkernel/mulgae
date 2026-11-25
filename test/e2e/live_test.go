@@ -335,7 +335,13 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
 	zcodeAppBundle := requireLiveDirectory(t, "MULGAE_E2E_ZCODE_APP_BUNDLE", "/Applications/ZCode.app")
 	profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(context.Background(), environmentadapter.NewInspector(), reviewrun.FamilyZCode, zcodeAppBundle)
-	if discoverErr != nil || profile.Executable() == "" || profile.Launcher() == "" || profile.ZCodeProviderConfig() == "" {
+	companion := profile.ZCodeCompanion()
+	switch reviewrun.ClassifyVersion(reviewrun.FamilyZCode, companion.Version) {
+	case reviewrun.VersionGreen, reviewrun.VersionYellow:
+	default:
+		t.Fatalf("ZCode companion version is ineligible: reason=%q error=%v", profile.Reason(), discoverErr)
+	}
+	if discoverErr != nil || profile.Executable() == "" || companion.DesktopBelowMinimum {
 		t.Fatalf("ZCode production discovery failed: reason=%q error=%v", profile.Reason(), discoverErr)
 	}
 	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeAppBundle: zcodeAppBundle}

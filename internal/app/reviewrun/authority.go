@@ -190,7 +190,7 @@ func validateAuthorityCandidates(candidates []QualifiedRunCandidate) error {
 	for _, candidate := range candidates {
 		definition := candidate.Definition
 		if !candidate.Profile.Family().Valid() || candidate.ExecutionTargetIdentity == "" || !candidate.Limits.Valid() || !candidate.BaseRole.Valid() || len(candidate.SupportedRoles) == 0 ||
-			Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() || definition.ApplicationVersion() != candidate.Profile.ApplicationVersion() || definition.ApplicationMetadata() != candidate.Profile.ApplicationMetadata() || definition.ApplicationMetadataSHA256() != candidate.Profile.ApplicationMetadataSHA256() {
+			!candidate.Profile.matchesCompanion(definition) || Family(definition.Family()) != candidate.Profile.Family() || definition.Instance() == "" || definition.Executable() != candidate.Profile.Executable() || definition.ExecutableSHA256() != candidate.Profile.SHA256() || definition.Launcher() != candidate.Profile.Launcher() || definition.LauncherSHA256() != candidate.Profile.LauncherSHA256() || definition.ApplicationVersion() != candidate.Profile.ApplicationVersion() || definition.ApplicationMetadata() != candidate.Profile.ApplicationMetadata() || definition.ApplicationMetadataSHA256() != candidate.Profile.ApplicationMetadataSHA256() {
 			return fmt.Errorf("review run: invalid qualified run candidate")
 		}
 		roles := make(map[domain.Role]struct{}, len(candidate.SupportedRoles))

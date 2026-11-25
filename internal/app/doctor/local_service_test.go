@@ -133,6 +133,13 @@ func (inspector localDoctorInspector) ObserveExecutableIdentity(_ context.Contex
 	inspector.fixture.trace = append(inspector.fixture.trace, "binary")
 	return ports.NewExecutableObservation(path, true, path, "", "sha256:"+strings.Repeat("a", 64))
 }
+func (inspector localDoctorInspector) ObserveZCodeCompanion(_ context.Context, bundle string, _ ...string) (ports.ZCodeCompanionObservation, error) {
+	inspector.fixture.trace = append(inspector.fixture.trace, "companion")
+	return ports.ZCodeCompanionObservation{
+		Executable: "/synthetic/herdr-zcode", ExecutableSHA256: "sha256:" + strings.Repeat("a", 64), PackageSHA256: strings.Repeat("b", 64),
+		Version: "0.2.0", AppVersion: "4.0.0", AppBundle: bundle, BundleOverride: bundle, MinimumAppVersion: "3.18.2",
+	}, nil
+}
 func (localDoctorInspector) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
 	panic("local diagnosis must use injected platform metadata")
 }
@@ -170,6 +177,11 @@ func (observer localDoctorTerminalRuntime) ObserveTerminalRuntime(_ context.Cont
 
 func newLocalDoctorFixture(t *testing.T) *localDoctorFixture {
 	t.Helper()
+	return newLocalDoctorFixtureForFamily(t, "grok")
+}
+
+func newLocalDoctorFixtureForFamily(t *testing.T, family string) *localDoctorFixture {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -191,8 +203,11 @@ func newLocalDoctorFixture(t *testing.T) *localDoctorFixture {
 	}
 	config.NativeUser.Home = "/synthetic/home"
 	config.Providers = appconfig.ProvidersConfig{Grok: &appconfig.GrokProviderConfig{Executable: "/synthetic/grok"}}
+	if family == "zcode" {
+		config.Providers = appconfig.ProvidersConfig{ZCode: &appconfig.ZCodeProviderConfig{AppBundle: "/Applications/ZCode.app"}}
+	}
 	for _, role := range []*appconfig.RoleConfig{&config.Roles.Logic, &config.Roles.Security, &config.Roles.Maintainability, &config.Roles.Product, &config.Roles.Documentation, &config.Roles.Testing} {
-		role.PrimaryProvider = "grok"
+		role.PrimaryProvider = family
 	}
 	project, local, err = adapterconfig.EncodeSplit(config)
 	if err != nil {
@@ -325,6 +340,33 @@ func TestLocalDoctorGrokTerminalRuntimeReadiness(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalDoctorZCodeCoreIdentityAffectsBinaryOnly(t *testing.T) {
+	for _, tc := range []struct {
+		state  ports.TerminalRuntimeAvailabilityState
+		reason string
+		exit   int
+	}{
+		{ports.TerminalRuntimeMissing, "herdr_core_missing", 4},
+		{ports.TerminalRuntimeUnsafeIdentity, "herdr_core_unsafe_identity", 8},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			fixture := newLocalDoctorFixtureForFamily(t, "zcode")
+			fixture.terminalState = tc.state
+			result, err := fixture.service.DiagnoseLocal(t.Context(), fixture.root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := result.ProviderInventory[0]
+			if result.Readiness.ExitCode != tc.exit || row.State != "unavailable" || row.Reason != tc.reason ||
+				!reflect.DeepEqual(row.BinaryAvailable.ReasonCodes, []string{tc.reason}) ||
+				row.CLICompatible.Status != "verified" || row.ApplicationCompatible.Status != "verified" {
+				t.Fatalf("core identity tainted the CLI/Desktop evidence or lost its readiness exit: %v / %+v", result.Readiness, row)
+			}
+		})
+	}
+}
+
 func TestLocalDoctorRejectsNativeHomeReplacement(t *testing.T) {
 	for _, cause := range []string{"replacement", "identity error"} {
 		t.Run(cause, func(t *testing.T) {

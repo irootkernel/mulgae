@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irootkernel/mulgae/internal/adapters/herdr"
 	"github.com/irootkernel/mulgae/internal/artifactwire"
 	"github.com/irootkernel/mulgae/internal/ports"
 )
@@ -99,10 +100,11 @@ func TestVMQualificationNative(t *testing.T) {
 	if err := os.Mkdir(barrier, 0700); err != nil {
 		t.Fatal(err)
 	}
-	buildFakeZCode(t, root, node, launcher, filepath.Join(work, "prior-provider.jsonl"), "fail_review")
+	priorBundle, priorNode, priorLauncher := priorZCodeAppPaths(providers)
+	buildPriorZCodeWithReport(t, root, priorNode, priorLauncher, filepath.Join(work, "prior-provider.jsonl"), "fail_review", "", fakeZCodeReportTemplate)
 	initializeReviewGitRepository(t, project)
 	oldEnvironment := environment
-	initializeOfflineProvidersForRoles(t, oldBinary, project, oldEnvironment, "zcode", "logic,security", bundle)
+	initializeOfflineProvidersForRoles(t, oldBinary, project, oldEnvironment, "zcode", "logic,security", priorBundle)
 	priorPolicy := vmConfigureAndCapturePriorPolicy(t, oldBinary, project, oldEnvironment)
 	// Both historical states are produced by the old installed CLI. The empty
 	// staged selection publishes without a provider; the controlled provider
@@ -131,6 +133,7 @@ func TestVMQualificationNative(t *testing.T) {
 	oldFailed := vmCLI(t, oldBinary, project, oldEnvironment, 0, "status", "--run", failedID)
 	failedHistory := vmRunOwnedTreeMaterial(t, project, failedSessionID, failedID, failedArtifactURI)
 	buildFakeZCodeWithBarrier(t, root, node, launcher, logPath, barrier)
+	environment = vmZCodeToolsEnvironment(environment, node, launcher)
 	// Configuration bytes, including the private file mode, are the old CLI's
 	// actual output; candidate init is never invoked on the retained project.
 	oldConfig := vmConfigMaterial(t, project)
@@ -700,6 +703,17 @@ func TestVMOwnedReviewCleanupEarlyReturn(t *testing.T) {
 	}
 }
 
+func vmZCodeToolsEnvironment(environment []string, companion, core string) []string {
+	result := make([]string, 0, len(environment)+2)
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if name != herdr.EnvHerdrZCodeBin && name != herdr.EnvHerdrCoreBin {
+			result = append(result, entry)
+		}
+	}
+	return append(result, herdr.EnvHerdrZCodeBin+"="+companion, herdr.EnvHerdrCoreBin+"="+core)
+}
+
 func vmNativePartialRole(t *testing.T, ctx context.Context, root, haepari, binary, work, waiterProject string, environment []string) {
 	t.Helper()
 	project, providers, barrier := filepath.Join(work, "partial-project"), filepath.Join(work, "partial-provider"), filepath.Join(work, "partial-barrier")
@@ -711,8 +725,9 @@ func vmNativePartialRole(t *testing.T, ctx context.Context, root, haepari, binar
 	bundle, node, launcher := fakeZCodeAppPaths(providers)
 	buildFakeZCodeWithReport(t, root, node, launcher, filepath.Join(work, "partial-provider.jsonl"), "fail_security_review", barrier, fakeZCodeReportTemplate)
 	initializeReviewGitRepository(t, project)
-	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic,security", bundle)
-	waitFirst, _ := vmStartOwnedReview(t, ctx, binary, project, environment, "logic,security")
+	partialEnvironment := vmZCodeToolsEnvironment(environment, node, launcher)
+	initializeOfflineProvidersForRoles(t, binary, project, partialEnvironment, "zcode", "logic,security", bundle)
+	waitFirst, _ := vmStartOwnedReview(t, ctx, binary, project, partialEnvironment, "logic,security")
 	vmWaitFor(t, ctx, func() bool {
 		files, _ := filepath.Glob(filepath.Join(project, ".mulgae", "diagnostics", "*", "*", "mulgae-runtime.jsonl"))
 		for _, file := range files {

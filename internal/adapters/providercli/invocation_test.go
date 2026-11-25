@@ -26,36 +26,18 @@ func (fixture nativeInvocationFixture) WorkspaceSnapshotIdentity() ports.Workspa
 }
 func (fixture nativeInvocationFixture) Validate() error { return nil }
 
-// TestZCodeQualificationDenylistStillFullyToolDenied pins the qualification
-// boundary. The review argv gained yolo mode and a Write grant for the
-// staged_file transport; qualification must keep its plan-mode, fully
-// tool-denied profile so the capability probe stays prompt-bound.
-func TestZCodeQualificationDenylistStillFullyToolDenied(t *testing.T) {
+func TestZCodeQualificationUsesDirectCompanionArgv(t *testing.T) {
 	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
 	definition := testProfile(t, FamilyZcode, "zcode_current", "", "")
-
 	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{"/private/bin/zcode", "app-server", "--stdio"}
-	if err != nil || !reflect.DeepEqual(argv, want) {
-		t.Fatalf("ZCode qualification argv = %#v, err = %v, want %#v", argv, err, want)
+	if want := []string{definition.executable}; err != nil || !reflect.DeepEqual(argv, want) {
+		t.Fatalf("qualification argv = %#v, err = %v, want %#v", argv, err, want)
 	}
 	if err := (NativeProbeInvocation{}).Validate(definition, fixture, argv); err != nil {
-		t.Fatalf("validate exact ZCode qualification argv: %v", err)
+		t.Fatal(err)
 	}
-	if reflect.DeepEqual(zcodeCapabilityProtocolDenylist, zcodeReviewProtocolDenylist) {
-		t.Fatal("qualification shares the review denylist")
-	}
-}
-
-func TestNativeProbeInvocationAllowsDeclaredZcodeLauncher(t *testing.T) {
-	fixture := nativeInvocationFixture{reference: "fixtures/probe.json"}
-	definition := testProfile(t, FamilyZcode, "zcode_current", "", "")
-	definition.launcher = "/private/bin/zcode-launcher"
-	definition.baseArgv = []string{definition.executable, definition.launcher}
-
-	argv, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture)
-	want := []string{definition.executable, definition.launcher, "app-server", "--stdio"}
-	if err != nil || !reflect.DeepEqual(argv, want) {
-		t.Fatalf("ZCode launcher argv = %#v, err = %v, want %#v", argv, err, want)
+	definition.baseArgv = append(definition.baseArgv, "/old/launcher")
+	if _, err := (NativeProbeInvocation{}).CapabilityArgv(definition, fixture); err == nil {
+		t.Fatal("accepted a second launch component")
 	}
 }

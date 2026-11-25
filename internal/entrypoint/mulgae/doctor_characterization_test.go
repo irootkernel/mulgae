@@ -40,19 +40,21 @@ type doctorBeforeFixture struct {
 }
 
 type doctorBeforeSpy struct {
-	trace          []string
-	nativeCalls    int
-	nativeErrors   map[int]error
-	replaceNative  bool
-	identityErrors map[string]error
-	missing        map[string]bool
-	appVersion     string
-	versionState   ports.ProviderVersionState
-	version        string
-	versionErr     error
-	afterVersion   func()
-	discoveryErr   error
-	realExecutable bool
+	trace                []string
+	nativeCalls          int
+	nativeErrors         map[int]error
+	replaceNative        bool
+	identityErrors       map[string]error
+	missing              map[string]bool
+	appVersion           string
+	desktopMinimum       string
+	companionFailedStage string
+	versionState         ports.ProviderVersionState
+	version              string
+	versionErr           error
+	afterVersion         func()
+	discoveryErr         error
+	realExecutable       bool
 }
 
 func (spy *doctorBeforeSpy) record(value string) { spy.trace = append(spy.trace, value) }
@@ -103,12 +105,35 @@ func (spy *doctorBeforeSpy) ObserveReadableFileIdentity(_ context.Context, name 
 	return ports.NewFileIdentityObservation(name, true, name, "sha256:"+strings.Repeat("a", 64))
 }
 
-func (spy *doctorBeforeSpy) ObserveApplicationMetadata(_ context.Context, name string) (ports.ApplicationMetadataObservation, error) {
-	spy.record("metadata")
-	if err := spy.identityErrors["Info.plist"]; err != nil {
-		return ports.ApplicationMetadataObservation{}, err
+func (spy *doctorBeforeSpy) ObserveZCodeCompanion(ctx context.Context, bundle string, _ ...string) (ports.ZCodeCompanionObservation, error) {
+	spy.record("companion.zcode")
+	if err := ctx.Err(); err != nil {
+		return ports.ZCodeCompanionObservation{}, err
 	}
-	return ports.NewApplicationMetadataObservation(name, "sha256:"+strings.Repeat("a", 64), spy.appVersion)
+	if err := spy.identityErrors["herdr-zcode"]; err != nil {
+		return ports.ZCodeCompanionObservation{}, err
+	}
+	if spy.missing["herdr-zcode"] {
+		return ports.ZCodeCompanionObservation{}, nil
+	}
+	desktop := spy.appVersion
+	minimum := spy.desktopMinimum
+	if minimum == "" {
+		minimum = "3.18.2"
+	}
+	observation := ports.ZCodeCompanionObservation{
+		Executable: "/synthetic/herdr-zcode", ExecutableSHA256: "sha256:" + strings.Repeat("a", 64), PackageSHA256: strings.Repeat("b", 64),
+		Version: "0.2.0", AppVersion: desktop, AppBundle: bundle, BundleOverride: bundle, MinimumAppVersion: minimum,
+		DesktopBelowMinimum: desktop == "4.0.0" && minimum == "4.1.0",
+	}
+	if spy.companionFailedStage == "" {
+		return observation, nil
+	}
+	if spy.companionFailedStage == "version" {
+		observation.Version = ""
+	}
+	observation.AppVersion, observation.AppBundle, observation.MinimumAppVersion = "", "", ""
+	return observation, ports.NewIdentityObservationError(ports.IdentityObservationUnavailable, "test companion diagnostic failed")
 }
 
 func (spy *doctorBeforeSpy) ObservePlatform(context.Context) (ports.PlatformObservation, error) {
@@ -197,7 +222,7 @@ func newDoctorBeforeFixture(t *testing.T, families string) *doctorBeforeFixture 
 		t.Fatal(err)
 	}
 	runFoundationGit(t, root, "init", "-q")
-	spy := &doctorBeforeSpy{appVersion: "3.12.3", versionState: ports.ProviderVersionObserved, version: "1.0.89"}
+	spy := &doctorBeforeSpy{appVersion: "4.0.0", versionState: ports.ProviderVersionObserved, version: "1.0.89"}
 	reader := &doctorBeforeReader{TrustedProjectReader: base.application.projectReader, spy: spy}
 	base.application.inspector, base.application.versionObserver, base.application.projectReader = spy, spy, reader
 	live, reviews := &heartbeatServiceStub{}, &reviewRunFake{}
@@ -467,14 +492,6 @@ func TestDoctorV7Characterization(t *testing.T) {
 		}})
 	}
 	tests = append(tests, scenario{name: "version_observer_error", families: "grok", configure: func(_ *testing.T, f *doctorBeforeFixture) { f.spy.versionErr = context.Canceled }}, scenario{name: "version_observer_missing", families: "grok", configure: func(_ *testing.T, f *doctorBeforeFixture) { f.application.versionObserver = nil }})
-	for _, version := range []struct{ name, value string }{{"supported", "3.12.3"}, {"newer", "9.9.9"}, {"below_minimum", "3.12.2"}} {
-		tests = append(tests, scenario{name: "zcode_app_" + version.name, families: "zcode", configure: func(_ *testing.T, f *doctorBeforeFixture) { f.spy.appVersion, f.spy.version = version.value, "0.16.5" }})
-	}
-	for _, component := range []string{"zcode.cjs", "zcode-builtin.json", "Info.plist"} {
-		tests = append(tests, scenario{name: "zcode_unsafe_" + component, families: "zcode", configure: func(_ *testing.T, f *doctorBeforeFixture) {
-			f.spy.identityErrors = map[string]error{component: ports.NewIdentityObservationError(ports.IdentityObservationSecurity, "unsafe component")}
-		}})
-	}
 	for _, test := range []struct {
 		name, family, component string
 		kind                    ports.IdentityObservationFailureKind
@@ -483,15 +500,6 @@ func TestDoctorV7Characterization(t *testing.T) {
 	}{
 		{name: "binary_not_executable", family: "grok", component: "grok", kind: ports.IdentityObservationUnavailable, reason: ports.IdentityObservationReasonNonExecutable},
 		{name: "binary_observation_failed", family: "grok", component: "grok", kind: ports.IdentityObservationUnavailable},
-		{name: "launcher_missing", family: "zcode", component: "zcode.cjs", missing: true},
-		{name: "launcher_unreadable", family: "zcode", component: "zcode.cjs", kind: ports.IdentityObservationUnavailable, reason: ports.IdentityObservationReasonUnreadable},
-		{name: "launcher_observation_failed", family: "zcode", component: "zcode.cjs", kind: ports.IdentityObservationUnavailable},
-		{name: "provider_config_missing", family: "zcode", component: "zcode-builtin.json", missing: true},
-		{name: "provider_config_unreadable", family: "zcode", component: "zcode-builtin.json", kind: ports.IdentityObservationUnavailable, reason: ports.IdentityObservationReasonUnreadable},
-		{name: "provider_config_observation_failed", family: "zcode", component: "zcode-builtin.json", kind: ports.IdentityObservationUnavailable},
-		{name: "metadata_unreadable", family: "zcode", component: "Info.plist", kind: ports.IdentityObservationUnavailable, reason: ports.IdentityObservationReasonUnreadable},
-		{name: "metadata_observation_failed", family: "zcode", component: "Info.plist", kind: ports.IdentityObservationUnavailable},
-		{name: "application_version_malformed", family: "zcode", component: "Info.plist", kind: ports.IdentityObservationUnavailable, reason: ports.IdentityObservationReasonMalformed},
 	} {
 		tests = append(tests, scenario{name: test.name, families: test.family, configure: func(_ *testing.T, f *doctorBeforeFixture) {
 			f.spy.version = "0.16.5"
@@ -513,6 +521,60 @@ func TestDoctorV7Characterization(t *testing.T) {
 				}
 				got := doctorBeforeCapture(t, f, context.Background(), "doctor", "--output", format)
 				assertDoctorBefore(t, test.name+"/"+format, got)
+			}
+		})
+	}
+}
+
+func TestDoctorZCodeCompanionUsesObservedDesktopFloor(t *testing.T) {
+	fixture := newDoctorBeforeFixture(t, "zcode")
+	fixture.spy.appVersion = "4.0.0"
+	fixture.spy.desktopMinimum = "4.1.0"
+	root, _ := ports.NewAnchoredRoot(fixture.root)
+	diagnosis, err := fixture.application.diagnoseLocalDoctor(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := diagnosis.ProviderInventory[0]
+	if row.Reason != "zcode_application_version_below_minimum" ||
+		row.ApplicationCompatible.MinimumVersion != "4.1.0" || row.ApplicationCompatible.ObservedVersion != "4.0.0" ||
+		row.CLICompatible.ObservedVersion != "0.2.0" {
+		t.Fatalf("companion-derived readiness = %+v", row)
+	}
+	if got := fixture.spy.trace; !reflect.DeepEqual(got, []string{"attest.1", "locality.1", "locality.2", "native.1", "companion.zcode", "native.2"}) {
+		t.Fatalf("ZCode doctor made unexpected observations: %v", got)
+	}
+}
+
+func TestDoctorZCodeRetainsVerifiedBinaryAfterDiagnosticFailure(t *testing.T) {
+	for _, stage := range []string{"version", "desktop"} {
+		t.Run(stage, func(t *testing.T) {
+			fixture := newDoctorBeforeFixture(t, "zcode")
+			fixture.spy.companionFailedStage = stage
+			fixture.application.terminalRuntimeObserver = doctorTerminalRuntimeObserver{}
+			root, _ := ports.NewAnchoredRoot(fixture.root)
+			diagnosis, err := fixture.application.diagnoseLocalDoctor(t.Context(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := diagnosis.ProviderInventory[0]
+			if err := diagnosis.Validate(); err != nil {
+				t.Fatalf("invalid v9 diagnosis: %v", err)
+			}
+			if row.State != "unavailable" || row.BinaryAvailable.Status != "verified" ||
+				row.ApplicationCompatible.ReasonCode != "herdr_zcode_desktop_observation_failed" {
+				t.Fatalf("independent diagnostic dimensions = %+v", row)
+			}
+			switch stage {
+			case "version":
+				if row.CLICompatible.Status != "unverifiable" || row.Reason != "herdr_zcode_cli_observation_failed" {
+					t.Fatalf("unavailable companion version = %+v", row)
+				}
+			case "desktop":
+				if row.CLICompatible.Status != "verified" || row.CLICompatible.ObservedVersion != "0.2.0" ||
+					row.Reason != "herdr_zcode_desktop_observation_failed" {
+					t.Fatalf("verified companion version with unavailable Desktop = %+v", row)
+				}
 			}
 		})
 	}

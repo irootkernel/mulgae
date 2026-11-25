@@ -41,8 +41,8 @@ func vmNativePriorActiveMigration(
 
 	logPath := filepath.Join(caseDir, "provider.jsonl")
 	mustWriteTestFile(t, logPath, nil)
-	bundle, node, launcher := fakeZCodeAppPaths(providers)
-	buildFakeZCodeWithReport(t, root, node, launcher, logPath, "wait_review", barrier, fakeZCodeReportTemplate)
+	bundle, node, launcher := priorZCodeAppPaths(providers)
+	buildPriorZCodeWithReport(t, root, node, launcher, logPath, "wait_review", barrier, fakeZCodeReportTemplate)
 
 	initializeReviewGitRepository(t, project)
 	runTestCommand(t, project, "git", "add", "review.go")

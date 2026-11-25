@@ -35,6 +35,38 @@ type NamespaceFactory struct {
 	root          string
 	rootInfo      os.FileInfo
 	rootDirectory *os.File
+	managedParent ports.AnchoredRoot
+}
+
+// ManagedNamespaceParent provides one private canonical parent for all
+// production review namespace generations owned by the installed user.
+func ManagedNamespaceParent() (ports.AnchoredRoot, error) {
+	path := fmt.Sprintf("/private/tmp/mulgae-provider-namespaces-%d", unix.Geteuid())
+	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return ports.AnchoredRoot{}, fmt.Errorf("provider namespace parent: %w", err)
+	}
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return ports.AnchoredRoot{}, fmt.Errorf("provider namespace parent: %w", err)
+	}
+	defer unix.Close(fd)
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil || st.Mode&0o777 != 0o700 || st.Uid != uint32(unix.Geteuid()) {
+		return ports.AnchoredRoot{}, fmt.Errorf("provider namespace parent: unsafe owner or permissions")
+	}
+	return ports.NewAnchoredRoot(path)
+}
+
+func NewManagedNamespaceFactory(root string, parent ports.AnchoredRoot) (*NamespaceFactory, error) {
+	if !parent.Valid() || filepath.Dir(root) != parent.String() {
+		return nil, fmt.Errorf("provider namespace factory: invalid managed parent")
+	}
+	factory, err := NewNamespaceFactory(root)
+	if err != nil {
+		return nil, err
+	}
+	factory.managedParent = parent
+	return factory, nil
 }
 
 var _ ports.ProviderNamespaceFactory = (*NamespaceFactory)(nil)
@@ -158,6 +190,7 @@ func (factory *NamespaceFactory) acquireProviderNamespace(ctx context.Context, i
 	root := filepath.Join(factory.root, rootName)
 	lease, err := newNamespaceLease(instance, generation, root, rootName, parentDirectory, rootDirectory, binding, family == FamilyZcode)
 	if err == nil {
+		lease.managedParent = factory.managedParent
 		err = factory.validatePinnedRoot()
 		if err == nil {
 			err = lease.ValidateForSpawn()
@@ -250,6 +283,10 @@ const (
 )
 
 type namespaceLease struct {
+	managedParent                 ports.AnchoredRoot
+	zcodePrepared                 ZCodeTerminalObservation
+	zcodeTerminal                 ports.TerminalRuntimeIdentity
+	zcodeQualified                bool
 	instance                      string
 	generation                    string
 	root                          string
@@ -296,25 +333,18 @@ type namespaceLease struct {
 
 var _ ports.ProviderNamespaceLease = (*namespaceLease)(nil)
 
-func (lease *namespaceLease) zcodeAccountRuntime(ctx context.Context, definition RuntimeDefinition) (*zcodeAccountRuntime, error) {
-	if lease == nil || lease.zcodeNativeHome == "" {
-		return nil, nil
+func (lease *namespaceLease) verifyZCodeNativeHome(home ports.AnchoredRoot) error {
+	if lease.zcodeNativeHome != home.String() || lease.zcodeNativeHomeInfo == nil {
+		return zcodePreparationSecurityError("desktop home authority missing")
 	}
-	info, err := os.Lstat(lease.zcodeNativeHome)
+	info, err := os.Lstat(home.String())
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, lease.zcodeNativeHomeInfo) {
-		return nil, fmt.Errorf("zcode account runtime: native home authority drift")
+		return zcodePreparationSecurityError("desktop home identity drift")
 	}
-	activeBuiltinPath, err := zcodeActiveBuiltinPath(filepath.Join(lease.root, "home"))
-	if err != nil {
-		return nil, err
-	}
-	return loadZCodeAccountRuntimeForSource(ctx, lease.zcodeNativeHome, definition.zcodeProviderConfig, activeBuiltinPath, definition.zcodeModel, definition.prepareZCodeOSCredential)
+	return nil
 }
 
-// zcodeRuntimeTempDirectory is the short shared temp directory for ZCode
-// app-server conversations. The server binds a per-process unix socket under
-// os.tmpdir(), and a namespace-rooted temp path exceeds the kernel socket
-// path limit, so ZCode namespaces redirect their temp variables here instead.
+// The desktop bridge needs a short path for its Unix socket.
 const zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
 
 func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding, sharedRuntimeTemp bool) (*namespaceLease, error) {
@@ -366,7 +396,7 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 		return lease, err
 	}
 	if sharedRuntimeTemp {
-		// The ZCode app-server binds a per-process unix socket under
+		// The ZCode Desktop bridge binds a per-process Unix socket under
 		// os.tmpdir(), and the namespace temp path exceeds the kernel's
 		// socket path limit, so ZCode temp state points at a short shared
 		// runtime directory instead. Socket names carry process-unique

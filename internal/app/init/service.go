@@ -528,7 +528,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		row.Status = "unavailable"
 		switch family {
 		case "zcode":
-			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyZCode, request.Overrides.ZCodeAppBundle)
+			profile, profileErr := reviewrun.DiscoverProviderProfileWithOverride(ctx, service.inspector, reviewrun.FamilyZCode, request.Overrides.ZCodeAppBundle, request.ProjectRoot.String())
 			if profileErr != nil {
 				discoveryErrors = append(discoveryErrors, profileErr)
 			}
@@ -547,8 +547,7 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 				row.AppBundleSource = "standard"
 			}
 			applicationEligible := profile.ApplicationVersionClassification() == reviewrun.VersionGreen || profile.ApplicationVersionClassification() == reviewrun.VersionYellow
-			if profile.Executable() != "" && profile.Launcher() != "" && profile.ZCodeProviderConfig() != "" &&
-				profile.ApplicationMetadata() != "" && applicationEligible && profile.Reason() == "unqualified_discovery" {
+			if profile.ZCodeCompanion().Valid() && applicationEligible && profile.Reason() == "unqualified_discovery" {
 				appBundle := request.Overrides.ZCodeAppBundle
 				if appBundle == "" {
 					appBundle = reviewrun.ZCodeAppBundle

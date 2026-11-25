@@ -43,22 +43,12 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	}
 	environment := append([]ports.EnvironmentVariable(nil), spec.Environment...)
 	if spec.Family == FamilyZcode {
-		if !validCanonicalAbsolute(spec.ZCodeProviderConfig) || !validSHA256Identity(spec.ZCodeProviderConfigSHA256) ||
-			!validCanonicalAbsolute(spec.ApplicationMetadata) || !validSHA256Identity(spec.ApplicationMetadataSHA256) || spec.ApplicationVersion == "" ||
-			hasZCodeProviderConfigEnvironment(environment) || hasEnvironmentVariable(environment, "ELECTRON_RUN_AS_NODE") {
-			return nil, fmt.Errorf("provider runtime builder: invalid zcode provider config identity")
+		if !spec.ZCodeCompanion.Valid() || spec.ZCodeCompanion.Executable != spec.Executable ||
+			spec.ZCodeCompanion.ExecutableSHA256 != spec.ExecutableSHA256 || spec.ZCodeCompanion.AppVersion != spec.ApplicationVersion {
+			return nil, fmt.Errorf("provider runtime builder: missing or mismatched ZCode companion identity")
 		}
-		providerConfig, err := ports.NewEnvironmentVariable("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE", spec.ZCodeProviderConfig)
-		if err != nil {
-			return nil, fmt.Errorf("provider runtime builder: invalid zcode provider config environment")
-		}
-		electronRuntime, err := ports.NewEnvironmentVariable("ELECTRON_RUN_AS_NODE", "1")
-		if err != nil {
-			return nil, fmt.Errorf("provider runtime builder: invalid zcode app environment")
-		}
-		environment = append(environment, providerConfig, electronRuntime)
-	} else if spec.ZCodeProviderConfig != "" || spec.ZCodeProviderConfigSHA256 != "" || spec.ApplicationVersion != "" || spec.ApplicationMetadata != "" || spec.ApplicationMetadataSHA256 != "" || hasZCodeProviderConfigEnvironment(environment) || hasEnvironmentVariable(environment, "ELECTRON_RUN_AS_NODE") {
-		return nil, fmt.Errorf("provider runtime builder: zcode provider config is bound to another family")
+	} else if spec.ZCodeCompanion != (ports.ZCodeCompanionObservation{}) {
+		return nil, fmt.Errorf("provider runtime builder: companion is bound to another family")
 	}
 	definition, err := NewProductionRuntimeDefinitionWithTransportAndSafetyPolicy(
 		spec.Family, spec.Instance, spec.Version, spec.Executable, spec.ExecutableSHA256, spec.Launcher, spec.LauncherSHA256,
@@ -74,6 +64,7 @@ func (RuntimeBuilder) BuildProductionRuntime(spec ports.ProviderRuntimeSpec) (po
 	definition.applicationMetadata = spec.ApplicationMetadata
 	definition.applicationMetadataSHA256 = spec.ApplicationMetadataSHA256
 	if spec.Family == FamilyZcode {
+		definition.zcodeCompanion = spec.ZCodeCompanion
 		definition.zcodeModel = spec.ZCodeModel
 		definition.zcodeReasoningEffort = spec.ZCodeReasoningEffort
 	} else if spec.ZCodeModel != "" || spec.ZCodeReasoningEffort != "" {

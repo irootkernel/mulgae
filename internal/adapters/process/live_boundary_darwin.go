@@ -105,6 +105,14 @@ func compileLiveBoundaryProfile(ctx context.Context, boundary ports.LiveReadOnly
 		// preserving TIOCGWINSZ/TIOCSWINSZ and termios raw-mode ioctls.
 		profile.WriteString("(deny file-ioctl (ioctl-command #x80017472))\n")
 	}
+	if parent, present := boundary.ManagedNamespaceRoot(); present {
+		if err := validateLiveBoundaryDirectory(parent.String()); err != nil {
+			return "", fmt.Errorf("process runner: managed namespace admission: %w", err)
+		}
+		profile.WriteString("(deny file-read-data file-link (require-all (subpath " +
+			strconv.Quote(parent.String()) + ") (require-not (subpath " +
+			strconv.Quote(boundary.WritableRoot().String()) + "))))\n")
+	}
 	ancestors := map[string]bool{}
 	missingCredentials := map[string]bool{}
 	for _, group := range []struct {

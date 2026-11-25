@@ -230,7 +230,7 @@ func directExecutionAuthorityFromProbeReceipts(receipts []ports.ProviderCurrentP
 func (qualifier *ProviderCurrentQualifier) rolesFor(request CurrentQualificationRequest) ([]domain.Role, error) {
 	definition := request.Definition
 	identity := request.Identity
-	if request.Namespace == nil || definition.Instance() == "" || request.Profile.Family() != Family(definition.Family()) ||
+	if request.Namespace == nil || nilInterface(definition) || !request.Profile.matchesCompanion(definition) || definition.Instance() == "" || request.Profile.Family() != Family(definition.Family()) ||
 		request.Profile.Executable() != definition.Executable() || request.Profile.SHA256() != definition.ExecutableSHA256() ||
 		request.Profile.Launcher() != definition.Launcher() || request.Profile.LauncherSHA256() != definition.LauncherSHA256() ||
 		request.Profile.ApplicationVersion() != definition.ApplicationVersion() || request.Profile.ApplicationMetadata() != definition.ApplicationMetadata() || request.Profile.ApplicationMetadataSHA256() != definition.ApplicationMetadataSHA256() ||

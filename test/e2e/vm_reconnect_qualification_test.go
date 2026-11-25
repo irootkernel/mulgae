@@ -35,6 +35,7 @@ func vmNativeResponseLoss(t *testing.T, parent context.Context, root, haepari, b
 	mustWriteTestFile(t, logPath, nil)
 	bundle, node, launcher := fakeZCodeAppPaths(providers)
 	buildFakeZCode(t, root, node, launcher, logPath, "success")
+	environment = vmZCodeToolsEnvironment(environment, node, launcher)
 	initializeReviewGitRepository(t, project)
 	initializeOfflineProvidersForRoles(t, binary, project, environment, "zcode", "logic", bundle)
 	var realHome string
