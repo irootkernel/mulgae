@@ -586,6 +586,58 @@ func TestInitializeProjectDefaultsNewGrokPolicyIndependently(t *testing.T) {
 	}
 }
 
+func TestInitializeProjectDefaultsNewZCodePolicyIndependently(t *testing.T) {
+	const defaultModel = "account:zai-individual-coding-plan/GLM-5.4"
+	const explicitModel = "account:zai-individual-coding-plan/GLM-5.3"
+	for _, test := range []struct {
+		name, model, effort, modelSource, effortSource string
+		overrides                                      Overrides
+		auto                                           bool
+	}{
+		{name: "explicit selection", model: defaultModel, effort: "max", modelSource: "mulgae_default", effortSource: "mulgae_default"},
+		{name: "model only", model: explicitModel, effort: "max", modelSource: "override", effortSource: "mulgae_default",
+			overrides: Overrides{ZCodeModel: explicitModel, ZCodeModelSet: true}},
+		{name: "effort only", model: defaultModel, effort: "high", modelSource: "mulgae_default", effortSource: "override",
+			overrides: Overrides{ZCodeReasoningEffort: "high", ZCodeReasoningEffortSet: true}},
+		{name: "both overrides", model: explicitModel, effort: "low", modelSource: "override", effortSource: "override",
+			overrides: Overrides{ZCodeModel: explicitModel, ZCodeModelSet: true, ZCodeReasoningEffort: "low", ZCodeReasoningEffortSet: true}},
+		{name: "automatic selection", model: defaultModel, effort: "max", modelSource: "mulgae_default", effortSource: "mulgae_default", auto: true,
+			overrides: Overrides{GrokExecutable: "/bin/grok"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := t.TempDir()
+			root, err := ports.NewAnchoredRoot(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := NewService(&testInstaller{}, testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			selection := Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode"}}
+			if test.auto {
+				selection = Selection{Mode: SelectionAuto}
+			}
+			result, err := service.InitializeProject(t.Context(), InitializeProjectRequest{
+				ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: selection, Overrides: test.overrides,
+			})
+			if err != nil || !result.Committed {
+				t.Fatalf("fresh init did not commit: %+v / %v", result, err)
+			}
+			config, err := readInstalledConfig(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := config.Providers.ZCode
+			row := result.Discovery[0]
+			if policy == nil || policy.Model != test.model || policy.ReasoningEffort != test.effort ||
+				row.ModelSource != test.modelSource || row.ReasoningEffortSource != test.effortSource {
+				t.Fatalf("fresh ZCode policy = %+v, discovery row = %+v", policy, row)
+			}
+		})
+	}
+}
+
 func TestInitializeProjectWritesSelectedProjectRolesAndScalesResourceDefaults(t *testing.T) {
 	t.Parallel()
 	selections := [][]string{
@@ -823,6 +875,62 @@ func TestInitializeProjectBootstrapsAndRefreshesMachineLocalConfig(t *testing.T)
 	}
 }
 
+func TestInitializeProjectKeepsExistingZCodeOmissions(t *testing.T) {
+	for _, test := range []struct{ name, model, effort string }{
+		{name: "both omitted"},
+		{name: "model omitted", effort: "high"},
+		{name: "effort omitted", model: "account:zai-individual-coding-plan/GLM-5.3"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			if err := os.Mkdir(filepath.Join(rootPath, ".mulgae"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root, err := ports.NewAnchoredRoot(rootPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := InitializeProjectRequest{ProjectRoot: root, ProjectName: "project", NativeHome: "/Users/test", Selection: Selection{Mode: SelectionSelected, ProviderIDs: []string{"zcode"}}}
+			config, err := candidateConfig(request, testRoleDefaults(), candidates{zcode: &adapterconfig.ZCodeProviderConfig{AppBundle: reviewrun.ZCodeAppBundle, Model: test.model, ReasoningEffort: test.effort}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			project, _, err := adapterconfig.EncodeSplit(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			projectPath := filepath.Join(rootPath, ".mulgae", "config.yaml")
+			if err := os.WriteFile(projectPath, project, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			service, err := NewService(filesystem.NewSecureWriter(), testInspector{}, testAttestor{}, testResultPrevalidator{}, testClock{}, adapterconfig.SourceFactory{}, adapterconfig.YAMLCodec{}, builtin.NewCatalog())
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Selection = Selection{Mode: SelectionAuto}
+			for _, refresh := range []bool{false, true} {
+				request.RefreshLocal = refresh
+				result, err := service.InitializeProject(context.Background(), request)
+				if err != nil || !result.Committed {
+					t.Fatalf("refresh=%t: result=%#v, err=%v", refresh, result, err)
+				}
+				row := result.Discovery[0]
+				if (test.model == "" && row.ModelSource != "provider_default") || (test.effort == "" && row.ReasoningEffortSource != "provider_default") {
+					t.Fatalf("refresh=%t: ZCode discovery=%#v", refresh, row)
+				}
+				current, err := os.ReadFile(projectPath)
+				if err != nil || !bytes.Equal(current, project) {
+					t.Fatalf("refresh=%t: shared policy changed: %v", refresh, err)
+				}
+				resolved, err := readInstalledConfig(rootPath)
+				if err != nil || resolved.Providers.ZCode.Model != test.model || resolved.Providers.ZCode.ReasoningEffort != test.effort {
+					t.Fatalf("refresh=%t: resolved ZCode=%#v, err=%v", refresh, resolved.Providers.ZCode, err)
+				}
+			}
+		})
+	}
+}
+
 func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 	appBundle := filepath.Join(t.TempDir(), "ZCode.app")
 	rootPath := t.TempDir()
@@ -846,7 +954,7 @@ func TestInitializeProjectReportsFamilySpecificDiscoverySources(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []DiscoveryRow{
-		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override", ModelSource: "provider_default", ReasoningEffortSource: "provider_default"},
+		{Family: "zcode", Selected: true, Candidate: true, Configured: true, Status: "candidate", AppBundleSource: "override", ModelSource: "mulgae_default", ReasoningEffortSource: "mulgae_default"},
 		{Family: "grok", Selected: true, Candidate: true, Configured: true, Status: "candidate", ExecutableSource: "override", ModelSource: "override", ReasoningEffortSource: "override"},
 	}
 	if !reflect.DeepEqual(result.Discovery, want) {

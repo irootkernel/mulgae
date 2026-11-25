@@ -7,6 +7,42 @@ import (
 	"testing"
 )
 
+func TestCommandResultV26ZCodeInitDefaultsKeepV25Frozen(t *testing.T) {
+	validator := newBuiltinValidator(t)
+	ctx := context.Background()
+	v25 := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v25.schema.json")
+	v26 := mustAssetID(t, "https://mulgae.local/schemas/mulgae-command-result.v26.schema.json")
+	for _, field := range []string{"model_source", "reasoning_effort_source"} {
+		t.Run(field, func(t *testing.T) {
+			doc := readAssetJSON(t, "examples/command-result.v26.valid.json").(map[string]any)
+			rows := doc["result"].(map[string]any)["discovery"].([]any)
+			zcode := rows[0].(map[string]any)
+			for _, source := range []string{"model_source", "reasoning_effort_source"} {
+				zcode[source] = "provider_default"
+			}
+			zcode[field] = "mulgae_default"
+			encode := func() []byte {
+				data, err := json.Marshal(doc)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return data
+			}
+			if err := validator.Validate(ctx, v26, encode()); err != nil {
+				t.Fatalf("v26 rejected %s: %v", field, err)
+			}
+			doc["schema_version"] = "mulgae-command-result.v25"
+			if err := validator.Validate(ctx, v25, encode()); err == nil {
+				t.Fatalf("v25 accepted the new %s value", field)
+			}
+			zcode[field] = "provider_default"
+			if err := validator.Validate(ctx, v25, encode()); err != nil {
+				t.Fatalf("v25 rejected historical provider_default: %v", err)
+			}
+		})
+	}
+}
+
 func TestCurrentProviderEvidenceBaseAdmitsEveryPublishedFamily(t *testing.T) {
 	t.Parallel()
 

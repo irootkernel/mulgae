@@ -26,8 +26,10 @@ const (
 var familyOrder = []string{"zcode", "grok"}
 
 const (
-	defaultGrokModel           = "grok-4.7"
-	defaultGrokReasoningEffort = "high"
+	defaultZCodeModel           = "account:zai-individual-coding-plan/GLM-5.4"
+	defaultZCodeReasoningEffort = "max"
+	defaultGrokModel            = "grok-4.7"
+	defaultGrokReasoningEffort  = "high"
 )
 
 type Selection struct {
@@ -35,18 +37,20 @@ type Selection struct {
 	ProviderIDs []string
 }
 type Overrides struct {
-	ZCodeAppBundle               string
-	ZCodeModel                   string
-	ZCodeReasoningEffort         string
-	ZCodeModelSet                bool
-	ZCodeReasoningEffortSet      bool
-	GrokExecutable               string
-	GrokModel                    string
-	GrokReasoningEffort          string
-	GrokModelSet                 bool
-	GrokReasoningEffortSet       bool
-	GrokModelDefaulted           bool
-	GrokReasoningEffortDefaulted bool
+	ZCodeAppBundle                string
+	ZCodeModel                    string
+	ZCodeReasoningEffort          string
+	ZCodeModelSet                 bool
+	ZCodeReasoningEffortSet       bool
+	ZCodeModelDefaulted           bool
+	ZCodeReasoningEffortDefaulted bool
+	GrokExecutable                string
+	GrokModel                     string
+	GrokReasoningEffort           string
+	GrokModelSet                  bool
+	GrokReasoningEffortSet        bool
+	GrokModelDefaulted            bool
+	GrokReasoningEffortDefaulted  bool
 }
 type InitializeProjectRequest struct {
 	ProjectRoot           ports.AnchoredRoot
@@ -246,6 +250,9 @@ func (service *Service) InitializeProject(ctx context.Context, request Initializ
 	}
 	if !projectPresent && contains(selected, "grok") {
 		request.Overrides = withDefaultGrokPolicy(request.Overrides)
+	}
+	if !projectPresent && (request.Selection.Mode == SelectionAuto || contains(selected, "zcode")) {
+		request.Overrides = withDefaultZCodePolicy(request.Overrides)
 	}
 	result.SelectedProviderIDs = append([]string{}, selected...)
 	result.DestinationState = ports.ConfigDestinationAbsent
@@ -534,11 +541,15 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 			}
 			row.AppBundleSource = "not_discovered"
 			row.ModelSource = "provider_default"
-			if request.Overrides.ZCodeModelSet {
+			if request.Overrides.ZCodeModelDefaulted {
+				row.ModelSource = "mulgae_default"
+			} else if request.Overrides.ZCodeModelSet || request.Overrides.ZCodeModel != "" {
 				row.ModelSource = "override"
 			}
 			row.ReasoningEffortSource = "provider_default"
-			if request.Overrides.ZCodeReasoningEffortSet {
+			if request.Overrides.ZCodeReasoningEffortDefaulted {
+				row.ReasoningEffortSource = "mulgae_default"
+			} else if request.Overrides.ZCodeReasoningEffortSet || request.Overrides.ZCodeReasoningEffort != "" {
 				row.ReasoningEffortSource = "override"
 			}
 			if request.Overrides.ZCodeAppBundle != "" {
@@ -607,6 +618,18 @@ func (service *Service) discover(ctx context.Context, request InitializeProjectR
 		}
 	}
 	return found, rows, nil
+}
+
+func withDefaultZCodePolicy(overrides Overrides) Overrides {
+	if !overrides.ZCodeModelSet && overrides.ZCodeModel == "" {
+		overrides.ZCodeModel = defaultZCodeModel
+		overrides.ZCodeModelDefaulted = true
+	}
+	if !overrides.ZCodeReasoningEffortSet && overrides.ZCodeReasoningEffort == "" {
+		overrides.ZCodeReasoningEffort = defaultZCodeReasoningEffort
+		overrides.ZCodeReasoningEffortDefaulted = true
+	}
+	return overrides
 }
 
 func withDefaultGrokPolicy(overrides Overrides) Overrides {

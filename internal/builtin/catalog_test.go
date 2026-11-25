@@ -231,8 +231,8 @@ func TestCatalogManifestUsesCanonicalSourceOrdering(t *testing.T) {
 	if manifest.Version != 1 {
 		t.Fatalf("manifest version = %d, want 1", manifest.Version)
 	}
-	if len(manifest.Assets) != 215 {
-		t.Fatalf("manifest asset count = %d, want 215", len(manifest.Assets))
+	if len(manifest.Assets) != 217 {
+		t.Fatalf("manifest asset count = %d, want 217", len(manifest.Assets))
 	}
 	for index := 1; index < len(manifest.Assets); index++ {
 		previous := manifest.Assets[index-1]
@@ -317,8 +317,8 @@ func TestCatalogSourceBytesAndIdentitiesMatchAuthoritativeSOT(t *testing.T) {
 		t.Fatalf("root role document must be a non-symlink regular file")
 	}
 	authoritativeSources[rootRoleSource] = struct{}{}
-	if len(authoritativeSources) != 204 {
-		t.Fatalf("authoritative runtime source count = %d, want 204", len(authoritativeSources))
+	if len(authoritativeSources) != 206 {
+		t.Fatalf("authoritative runtime source count = %d, want 206", len(authoritativeSources))
 	}
 	if len(bySource) != len(authoritativeSources) {
 		t.Fatalf("manifest has %d unique sources, authoritative SOT has %d", len(bySource), len(authoritativeSources))
@@ -635,12 +635,13 @@ func TestCatalogHasExactSchemaExampleInventoryWithoutOrphans(t *testing.T) {
 		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v5.schema.json", "schemas/mulgae-provider-heartbeat-result.v5.schema.json", "examples/provider-heartbeat-result.v5.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v12.schema.json", "schemas/mulgae-review-preflight.v12.schema.json", "examples/review-preflight.v12.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-command-result.v25.schema.json", "schemas/mulgae-command-result.v25.schema.json", "examples/command-result.v25.valid.json"},
+		{"https://mulgae.local/schemas/mulgae-command-result.v26.schema.json", "schemas/mulgae-command-result.v26.schema.json", "examples/command-result.v26.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-doctor-result.v9.schema.json", "schemas/mulgae-doctor-result.v9.schema.json", "examples/doctor-result.v9.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v6.schema.json", "schemas/mulgae-provider-heartbeat-result.v6.schema.json", "examples/provider-heartbeat-result.v6.valid.json"},
 		{"https://mulgae.local/schemas/mulgae-review-preflight.v13.schema.json", "schemas/mulgae-review-preflight.v13.schema.json", "examples/review-preflight.v13.valid.json"},
 	}
-	if len(expected) != 90 {
-		t.Fatalf("test pair inventory contains %d pairs, want 90", len(expected))
+	if len(expected) != 91 {
+		t.Fatalf("test pair inventory contains %d pairs, want 91", len(expected))
 	}
 	authoritative := authoritativeSchemaExamplePairs(t)
 	if len(authoritative) != len(expected) {

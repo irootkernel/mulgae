@@ -219,7 +219,7 @@ coherent inspection and complete report/evidence reads. It checks no-change
 provenance, source selection identity and absence of source archives. Frozen
 historical projections preserve their original envelopes; the owning query
 tests establish historical artifact integrity. Current envelopes pass through
-an independently updated consumer, including command-result v25, preflight v13
+an independently updated consumer, including command-result v26, preflight v13
 and live-source/source-evidence capabilities.
 
 For actual client checks, use invocation-only MCP configuration and existing

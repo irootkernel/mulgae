@@ -57,8 +57,11 @@ Individual Coding Plan. The companion checks the configured app bundle and
 prepares a private account projection for each invocation.
 `--zcode-model` accepts a provider-qualified value such as
 `account:zai-individual-coding-plan/GLM-5.3`.
-`--zcode-reasoning-effort` sets the effort independently. Omitted fields keep
-the current ZCode session setting.
+`--zcode-reasoning-effort` sets the effort independently. For a new project
+that selects ZCode, init writes `account:zai-individual-coding-plan/GLM-5.4`
+and `max` when the corresponding flag is omitted. In an existing Config v5
+file, each omitted field keeps the corresponding ZCode session setting.
+`init --refresh-local` rejects both flags.
 
 Use `mulgae config --mode effective` to inspect the admitted configuration and
 `mulgae config --mode provenance` to inspect its source.

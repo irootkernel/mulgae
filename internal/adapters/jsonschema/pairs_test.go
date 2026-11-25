@@ -282,6 +282,7 @@ var authoritativePairs = []schemaExamplePair{
 	{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v5.schema.json", "example:provider-heartbeat-result.v5.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v12.schema.json", "example:review-preflight.v12.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-command-result.v25.schema.json", "example:command-result.v25.valid.json"},
+	{"https://mulgae.local/schemas/mulgae-command-result.v26.schema.json", "example:command-result.v26.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-doctor-result.v9.schema.json", "example:doctor-result.v9.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-provider-heartbeat-result.v6.schema.json", "example:provider-heartbeat-result.v6.valid.json"},
 	{"https://mulgae.local/schemas/mulgae-review-preflight.v13.schema.json", "example:review-preflight.v13.valid.json"},

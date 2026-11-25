@@ -33,6 +33,13 @@ mulgae init --providers grok --roles logic,security \
   --grok-model grok-4.7 --grok-reasoning-effort high --output json
 ```
 
+New projects that select ZCode write `account:zai-individual-coding-plan/GLM-5.4`
+and `max` unless `--zcode-model` or `--zcode-reasoning-effort` overrides the
+corresponding setting. The v26 JSON result reports `mulgae_default` or
+`override` for each field independently. An omitted field in existing Config
+v5 keeps the corresponding ZCode session setting. Local refresh rejects both
+ZCode policy flags.
+
 New projects that select Grok write `grok-4.7` and `high` when either value is
 not supplied explicitly. The two flags override those dimensions independently.
 An existing Config v5 file that omits either field continues to use Grok's

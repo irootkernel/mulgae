@@ -46,7 +46,7 @@ import (
 
 const (
 	foundationRequestID           = "i_019f596a-cf80-7c67-b265-f37053d51ccf"
-	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v25.schema.json"
+	commandSchemaID               = "https://mulgae.local/schemas/mulgae-command-result.v26.schema.json"
 	foundationProviderEvidenceURI = "https://evidence.example.test/providers/authority.json"
 	globalConfigAssetID           = "test:legacy-config-source"
 )
@@ -687,6 +687,56 @@ func TestApplicationInitCreateOnceAndJSONFailureSeparation(t *testing.T) {
 	}
 	if failureEnvelope.Result.WriteState != "existing_untouched" || failureEnvelope.Result.DestinationState != ports.ConfigDestinationPresent || len(failureEnvelope.Result.Discovery) != 0 {
 		t.Fatalf("existing init result = %#v", failureEnvelope.Result)
+	}
+}
+
+func TestApplicationInitZCodePolicyV26(t *testing.T) {
+	fixture := newDoctorBeforeFixture(t, "")
+	ctx := context.Background()
+	result := fixture.application.Run(ctx, []string{
+		"init", "--providers", "zcode", "--zcode-app-bundle", "/synthetic/ZCode.app",
+		"--zcode-reasoning-effort", "high", "--output", "json",
+	}, fixture.root)
+	assertFoundationEnvelope(t, fixture.foundationFixture, result, app.ExitCodeSuccess)
+	var envelope struct {
+		Request struct {
+			Overrides map[string]string `json:"overrides"`
+		} `json:"request"`
+		Result appinit.InitializeProjectResult `json:"result"`
+	}
+	if err := json.Unmarshal(result.Stdout(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := envelope.Request.Overrides["zcode_model"]; exists || envelope.Request.Overrides["zcode_reasoning_effort"] != "high" {
+		t.Fatalf("request overrides = %#v", envelope.Request.Overrides)
+	}
+	if discovery := envelope.Result.Discovery; len(discovery) != 2 || discovery[0].Family != "zcode" || discovery[0].ModelSource != "mulgae_default" || discovery[0].ReasoningEffortSource != "override" || discovery[1].ModelSource != "not_selected" {
+		t.Fatalf("init discovery = %#v", discovery)
+	}
+	projectPath, localPath := fixture.projectPath(), filepath.Join(fixture.root, ".mulgae", "local.yaml")
+	read := func(t *testing.T, path string) []byte {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	project, local := read(t, projectPath), read(t, localPath)
+	if !bytes.Contains(project, []byte(`model: "account:zai-individual-coding-plan/GLM-5.4"`)) || !bytes.Contains(project, []byte(`reasoning_effort: "high"`)) || bytes.Contains(local, []byte("model:")) || bytes.Contains(local, []byte("reasoning_effort:")) {
+		t.Fatalf("init wrote unexpected shared or local policy: shared=%q local=%q", project, local)
+	}
+	for _, override := range []struct{ flag, value string }{
+		{"--zcode-model", "account:zai-individual-coding-plan/GLM-5.3"},
+		{"--zcode-reasoning-effort", "low"},
+	} {
+		t.Run(override.flag, func(t *testing.T) {
+			rejected := fixture.application.Run(ctx, []string{"init", "--refresh-local", override.flag, override.value, "--output", "json"}, fixture.root)
+			assertFoundationEnvelope(t, fixture.foundationFixture, rejected, app.ExitCodeUsage)
+			if !bytes.Equal(read(t, projectPath), project) || !bytes.Equal(read(t, localPath), local) {
+				t.Fatalf("refresh with %s changed configuration", override.flag)
+			}
+		})
 	}
 }
 
@@ -2015,7 +2065,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	machine := fixture.application.Run(context.Background(), []string{"providers", "--include-unverified", "--output", "json"}, root)
 	assertFoundationEnvelope(t, fixture, machine, app.ExitCodeSuccess)
 	// The CLI providers result is a closed four-field summary pinned by the
-	// mulgae-command-result.v25 schema with additionalProperties: false;
+	// mulgae-command-result.v26 schema with additionalProperties: false;
 	// profiles and transports exist only in the service-layer projection.
 	var machineEnvelope struct {
 		SchemaVersion string          `json:"schema_version"`
@@ -2024,7 +2074,7 @@ func TestApplicationProvidersListsOnlyUnverifiedProfilesWithoutProbing(t *testin
 	if err := json.Unmarshal(machine.Stdout(), &machineEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if machineEnvelope.SchemaVersion != "mulgae-command-result.v25" {
+	if machineEnvelope.SchemaVersion != "mulgae-command-result.v26" {
 		t.Fatalf("providers envelope schema_version = %q, want the current command schema identity", machineEnvelope.SchemaVersion)
 	}
 	var machineResult struct {
@@ -5272,7 +5322,7 @@ func TestSharedFoundationAssetsConcurrentReuseAndIsolation(t *testing.T) {
 	}
 
 	schemaID := mustFoundationAssetID(t, commandSchemaID)
-	exampleID := mustFoundationAssetID(t, "example:command-result.v25.valid.json")
+	exampleID := mustFoundationAssetID(t, "example:command-result.v26.valid.json")
 	wantMeta, wantBytes, err := wantCatalog.Read(ctx, schemaID)
 	if err != nil {
 		t.Fatal(err)

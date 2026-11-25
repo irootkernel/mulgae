@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 
@@ -40,7 +41,15 @@ func historicalDiscoverySpecs(specs []appinit.DiscoverySourceSpec) []appinit.Dis
 	historical := make([]appinit.DiscoverySourceSpec, 0, 3)
 	for _, spec := range specs {
 		switch spec.Family {
-		case "zcode", "grok":
+		case "zcode":
+			// V13 is the generator input for later historical command schemas.
+			for i := range spec.Fields {
+				spec.Fields[i].Values = slices.DeleteFunc(spec.Fields[i].Values, func(value string) bool {
+					return value == "mulgae_default"
+				})
+			}
+			historical = append(historical, spec)
+		case "grok":
 			historical = append(historical, spec)
 		}
 	}

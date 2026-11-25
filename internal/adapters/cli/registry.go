@@ -10,7 +10,7 @@ import (
 	"github.com/irootkernel/mulgae/internal/artifactwire"
 )
 
-const commandResultContractURI = "https://mulgae.local/schemas/mulgae-command-result.v25.schema.json"
+const commandResultContractURI = "https://mulgae.local/schemas/" + commandResultSchemaVersion + ".schema.json"
 
 const commandRequestPointerPrefix = commandResultContractURI + "#/$defs/requests/"
 const fixedCommandSpecCount = 19

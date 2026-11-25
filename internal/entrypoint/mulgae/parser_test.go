@@ -161,10 +161,18 @@ func TestParseInitForms(t *testing.T) {
 		{"init", "--refresh-local", "--agy-permission-mode", "safe"},
 		{"init", "--refresh-local", "--grok-model", "grok-4.5"},
 		{"init", "--refresh-local", "--grok-reasoning-effort", ""},
-		{"init", "--refresh-local", "--zcode-model", "account:zai-individual-coding-plan/GLM-5.3"},
 	} {
 		if _, err := Parse(arguments, testProjectRoot, testRequestID); !errors.Is(err, ErrUsage) {
 			t.Errorf("Parse(%v) error = %v, want usage", arguments, err)
+		}
+	}
+	for _, arguments := range [][]string{
+		{"init", "--refresh-local", "--zcode-model", "account:zai-individual-coding-plan/GLM-5.3"},
+		{"init", "--refresh-local", "--zcode-reasoning-effort", "low"},
+	} {
+		_, err := Parse(arguments, testProjectRoot, testRequestID)
+		if !errors.Is(err, ErrUsage) || !strings.HasSuffix(err.Error(), ": init --refresh-local accepts only machine-local overrides") {
+			t.Errorf("Parse(%v) error = %v, want machine-local override rejection", arguments, err)
 		}
 	}
 	for _, arguments := range [][]string{

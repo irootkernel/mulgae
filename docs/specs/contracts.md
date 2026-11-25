@@ -4,7 +4,7 @@
 
 [Native Haepari review coordination](haepari-review-coordination.md) owns
 EPIC-016's shared review lifecycle and compatibility requirements. The current
-owner and borrower implementation preserves CLI v25/MCP v1 shapes and adds closed
+owner and borrower implementation preserves CLI v26/MCP v1 shapes and adds closed
 owned `haepari_*` terminal causes and coordination summaries. Native identifiers
 and messages stay private. The private intent v2 (owned) and v3 (borrowed) add
 local-drain proof while v1 remains readable with unknown proof. The
@@ -132,15 +132,23 @@ closed unless both are available. `assets/roles.yaml` prefers ZCode then Grok
 for all core text roles, and ZCode alone for artist. Existing shared policy is
 never re-derived.
 
-Current public contracts are command-result v25, doctor v9, provider-heartbeat
-v6 and review-preflight v13. Their earlier schema/example pairs remain frozen.
+Current public contracts are command-result v26, doctor v9, provider-heartbeat
+v6 and review-preflight v13. The v25 command-result schema and its example
+remain frozen for backward reads, along with earlier pairs.
 Provider-evidence v4 remains historical.
 
 For ZCode, the local authority records only the canonical app bundle. The
 project authority may independently declare `model` and `reasoning_effort`.
 `model` is a provider-qualified Z.AI Individual Coding Plan selection such as
-`account:zai-individual-coding-plan/GLM-5.3`; either field may be omitted to
-preserve the current ZCode session setting for that dimension. Mulgae resolves
+`account:zai-individual-coding-plan/GLM-5.3`. For a new project that selects
+ZCode, init writes `account:zai-individual-coding-plan/GLM-5.4` and `max` unless
+the corresponding flag is supplied. Command-result v26 reports each discovery
+source independently. It uses `override` for an explicit selection,
+`mulgae_default` for a value supplied by new-project init, `provider_default`
+when init supplies no setting, and `not_selected` when ZCode is outside the
+selection.
+Once a Config v5 file exists, omitting or removing a field preserves the
+current ZCode session setting for that dimension. Mulgae resolves
 the exact companion package and passes the app bundle as an opaque path.
 `herdr-zcode prepare-isolated` supplies the account and catalog for the current
 Z.AI Individual Coding Plan. Mulgae admits that projection against the
@@ -156,7 +164,8 @@ retain their precedence.
 `mulgae init` creates both files in a new project. When a clone already has the
 shared file, init creates only the missing local file and rejects project-policy
 options. `init --refresh-local` atomically replaces only `local.yaml` and
-rejects project-policy options. Earlier config versions, including v2, are
+rejects project-policy options, including `--zcode-model` and
+`--zcode-reasoning-effort`. Earlier config versions, including v2, are
 rejected and are never migrated automatically.
 
 Manual Config v4 migration backs up the private file, changes both `version`
@@ -209,7 +218,7 @@ review provider invocations one Mulgae process may run at once. It is not a
 provider identity and does not coordinate another process or project.
 Provider qualification probes are not counted against it; each qualification
 batch runs at most one concurrent probe per distinct provider family. Current
-command-result v25 and review-preflight v13 documents describe execution as
+command-result v26 and review-preflight v13 documents describe execution as
 `budget.role_paths[]`; each entry identifies `role`, `provider_instance`,
 `invocation_count`, `transition_count`, `invocation_timeouts`, and `deadline`.
 The array contains at most the seven unique review roles, with at most two
@@ -783,7 +792,7 @@ when the namespace is acquired.
 ## Output and exits
 
 `mulgae version --json` returns exactly `name` and `version`. Contract-valid
-workflow requests emit command-result v25. Init's rejected-request envelope
+workflow requests emit command-result v26. Init's rejected-request envelope
 remains supported. Retired commands and capture-bound fields fail grammar before
 provider execution with usage exit 2 and human stderr, even when JSON was requested.
 No child selector resolution or compose mutation exists on the current surface.
@@ -1207,15 +1216,15 @@ a failed rerun. Cleanup validates bounded manifest metadata and confirms its
 identity without reading input or report blobs. Historical status reads still
 verify all blobs and captured evidence. Normal findings, report, and export
 readers still require P2.
-These historical records grant no new provider execution. CLI v5 through v24
+These historical records grant no new provider execution. CLI v5 through v25
 schema examples remain available for explicit backward validation; current CLI
-envelopes use v25. MCP retains its v1 common envelope, whose `data` object
+envelopes use v26. MCP retains its v1 common envelope, whose `data` object
 carries the extended status projection.
 
 ## Read-only project context
 
 `mulgae context [--output human|json]` accepts no selectors. MCP `get_context`
-accepts an empty argument object. CLI command-result v25 `result` and MCP v1
+accepts an empty argument object. CLI command-result v26 `result` and MCP v1
 `data` contain identical `project_binding` and `capabilities` objects. The binding
 is the SHA-256 identity defined in [verified review contracts](verified-review-contracts.md#native-project-binding).
 The `live_source`, `source_evidence`, `project_binding`, `inspection`,
@@ -1350,7 +1359,7 @@ no total-content ceiling.
 
 The [frozen EPIC-008 contracts](review-completeness-and-iteration.md#frozen-requirements-assessment-contracts)
 own optional input, assessment accounting, bounded support/read metadata and
-unbounded retained content. Current commands emit command-result v25, preflight
+unbounded retained content. Current commands emit command-result v26, preflight
 v13 and live review artifacts/manifests v4 with support index v4. Earlier
 substantive schema/example pairs remain unchanged.
 
@@ -1385,7 +1394,7 @@ bounded summary contains `input_sha256`, `selected_count`, ordered `items` with
 Git binding availability controls the execution capability; preflight invokes no
 providers and creates no run. It cannot predict future shared allowance use.
 
-Command-result v25 embeds preflight v13 and its failure projection together.
+Command-result v26 embeds preflight v13 and its failure projection together.
 Frozen v10 retains `execution_available: false`, and v22 retains its v10 shape.
 MCP keeps its existing start/await/cancel lifecycle and common v1 tool envelope.
 

@@ -1,0 +1,59 @@
+{
+  "schema_version": "mulgae-command-result.v26",
+  "command": "init",
+  "request": {
+    "request_id": "i_019f596a-e201-7a4b-8d76-1cf503a1849e",
+    "command": "init",
+    "project_root": ".",
+    "project_name": "project",
+    "context": null,
+    "selection": {
+      "mode": "selected",
+      "provider_ids": ["zcode"]
+    },
+    "roles": ["logic"],
+    "overrides": {},
+    "overwrite": false,
+    "output_format": "json"
+  },
+  "completed_at": "2026-09-04T06:00:00Z",
+  "exit": {
+    "code": 0,
+    "kind": "success"
+  },
+  "reasons": [],
+  "result": {
+    "kind": "initialized",
+    "config_uri": ".mulgae/config.yaml",
+    "config_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "selected_provider_ids": ["zcode"],
+    "candidate_provider_ids": ["zcode"],
+    "configured_provider_ids": ["zcode"],
+    "configured_role_ids": ["logic"],
+    "write_state": "committed",
+    "committed": true,
+    "destination_state": "present",
+    "discovery": [
+      {
+        "family": "zcode",
+        "selected": true,
+        "candidate": true,
+        "configured": true,
+        "status": "candidate",
+        "app_bundle_source": "standard",
+        "model_source": "mulgae_default",
+        "reasoning_effort_source": "mulgae_default"
+      },
+      {
+        "family": "grok",
+        "selected": false,
+        "candidate": false,
+        "configured": false,
+        "status": "not_selected",
+        "executable_source": "not_selected",
+        "model_source": "not_selected",
+        "reasoning_effort_source": "not_selected"
+      }
+    ]
+  }
+}

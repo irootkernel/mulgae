@@ -669,7 +669,7 @@ func TestProvidersCharacterization(t *testing.T) {
 func currentDoctorTransportExpectation(want doctorBefore) doctorBefore {
 	historicalPrefix := `{"schema_version":"mulgae-command-result.v21",`
 	if strings.HasPrefix(want.Stdout, historicalPrefix) {
-		want.Stdout = `{"schema_version":"mulgae-command-result.v25",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
+		want.Stdout = `{"schema_version":"mulgae-command-result.v26",` + strings.TrimPrefix(want.Stdout, historicalPrefix)
 	}
 	return want
 }
@@ -731,7 +731,7 @@ func currentDoctorPortfolioExpectation(want doctorBefore) doctorBefore {
 func TestDoctorTransportExpectationChangesOnlyOuterVersionPrefix(t *testing.T) {
 	original := doctorBefore{Stdout: `{"schema_version":"mulgae-command-result.v21","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`, Stderr: "exact stderr", Trace: []string{"exact effect"}}
 	want := original
-	want.Stdout = `{"schema_version":"mulgae-command-result.v25","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
+	want.Stdout = `{"schema_version":"mulgae-command-result.v26","nested":{"schema_version":"mulgae-command-result.v21"},"payload":"exact"}`
 	if got := currentDoctorTransportExpectation(original); !reflect.DeepEqual(got, want) {
 		t.Fatal("version projection changed non-version evidence")
 	}

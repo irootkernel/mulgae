@@ -157,7 +157,7 @@ containment. Coverage, findings/CI, publication and lock disposition stay separa
 
 ## Supported observation
 
-CLI v25 and MCP v1 retain their existing envelopes. Owned `haepari_*` causes and
+CLI v26 and MCP v1 retain their existing envelopes. Owned `haepari_*` causes and
 `diagnostic_summary` tokens distinguish readiness, queue expiry, cancellation,
 hold reservation, protection loss, unknown local drain, persistence and final
 disposition. Native free text, paths and identities are not public diagnostics.

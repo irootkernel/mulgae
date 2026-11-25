@@ -11,12 +11,47 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	appinit "github.com/irootkernel/mulgae/internal/app/init"
 )
 
 type contractPair struct {
 	schemaSource, schemaTarget   string
 	exampleSource, exampleTarget string
 	oldVersion, newVersion       string
+}
+
+var zcodeInitDefaultContractPair = contractPair{
+	"schemas/mulgae-command-result.v25.schema.json", "schemas/mulgae-command-result.v26.schema.json",
+	"examples/command-result.v25.valid.json", "examples/command-result.v26.valid.json",
+	"mulgae-command-result.v25", "mulgae-command-result.v26",
+}
+
+func publishZCodeInitDefaults(assets string) error {
+	pair := zcodeInitDefaultContractPair
+	contents, err := os.ReadFile(filepath.Join(assets, pair.schemaSource))
+	if err != nil {
+		return err
+	}
+	rewrite := strings.NewReplacer(pair.oldVersion, pair.newVersion, "Command Result v25", "Command Result v26")
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(rewrite.Replace(string(contents))), &schema); err != nil {
+		return err
+	}
+	definitions := schema["$defs"].(map[string]any)
+	properties := definitions["init_discovery_zcode"].(map[string]any)["properties"].(map[string]any)
+	for _, spec := range appinit.DiscoverySourceSpecs() {
+		if spec.Family == "zcode" {
+			for _, field := range spec.Fields {
+				properties[field.JSONName].(map[string]any)["enum"] = field.Values
+			}
+		}
+	}
+	encoded, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeGenerated(filepath.Join(assets, pair.schemaTarget), append(encoded, '\n'))
 }
 
 var agyContractPairs = []contractPair{
@@ -192,6 +227,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := publishZCodeInitDefaults(assets); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	commandPair := contractPair{"schemas/mulgae-command-result.v12.schema.json", "schemas/mulgae-command-result.v13.schema.json", "examples/command-result.v12.valid.json", "examples/command-result.v13.valid.json", "mulgae-command-result.v12", "mulgae-command-result.v13"}
 	catalogPairs := append(pairs, commandPair,
 		contractPair{"schemas/mulgae-command-result.v13.schema.json", "schemas/mulgae-command-result.v14.schema.json", "examples/command-result.v13.valid.json", "examples/command-result.v14.valid.json", "mulgae-command-result.v13", "mulgae-command-result.v14"},
@@ -218,7 +257,9 @@ func main() {
 		contractPair{"schemas/mulgae-review-preflight.v10.schema.json", "schemas/mulgae-review-preflight.v11.schema.json", "examples/review-preflight.v10.valid.json", "examples/review-preflight.v11.valid.json", "mulgae-review-preflight.v10", "mulgae-review-preflight.v11"},
 		contractPair{"schemas/mulgae-requirements-read.v1.schema.json", "schemas/mulgae-requirements-cursor.v1.schema.json", "examples/requirements-read.v1.valid.json", "examples/requirements-cursor.v1.valid.json", "mulgae-requirements-read.v1", "mulgae-requirements-cursor.v1"},
 	)
-	if err := updateFileCatalog(assets, append(append(append(catalogPairs, agyContractPairs...), cursorRetirementContractPairs...), codexAgyRetirementContractPairs...)); err != nil {
+	catalogPairs = append(append(append(catalogPairs, agyContractPairs...), cursorRetirementContractPairs...), codexAgyRetirementContractPairs...)
+	catalogPairs = append(catalogPairs, zcodeInitDefaultContractPair)
+	if err := updateFileCatalog(assets, catalogPairs); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

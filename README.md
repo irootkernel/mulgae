@@ -55,7 +55,9 @@ prepares the current Desktop account and catalog in an owned namespace. Each
 pane sees only its own projection, and Mulgae drains the namespace after the
 pane ends.
 
-An optional shared model and reasoning effort can be recorded independently:
+When a new project selects ZCode, `mulgae init` writes
+`account:zai-individual-coding-plan/GLM-5.4` and `max` to `.mulgae/config.yaml`.
+Use either flag to override the corresponding setting.
 
 ```bash
 mulgae init --providers zcode \
@@ -63,7 +65,8 @@ mulgae init --providers zcode \
   --zcode-reasoning-effort high
 ```
 
-If either value is omitted, ZCode keeps its current session setting for that dimension.
+Each omitted field in an existing Config v5 file keeps the corresponding
+ZCode session setting. Remove a field to restore that behavior.
 
 ### Use Grok from Mulgae
 

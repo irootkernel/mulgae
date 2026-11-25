@@ -137,9 +137,9 @@ through `herdr-zcode`. The companion owns Desktop access. ZCode workspace
 reviews run shell-free, Config v5 and `doctor-result.v9` remain current, and
 omitted model or effort settings inherit the corresponding session setting.
 
-`TASK-097` owns the new-project `GLM-5.4` and `max` defaults and
-`mulgae-command-result.v26`. `TASK-098` owns integrated native certification,
-the ADR promotion, and `DF-030` closeout.
+New ZCode projects default to `GLM-5.4` with `max` reasoning effort.
+`mulgae-command-result.v26` reports the source of each setting. `TASK-098`
+owns integrated native certification, the ADR promotion, and `DF-030` closeout.
 
 ## Native Haepari review coordination
 

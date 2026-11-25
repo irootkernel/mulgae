@@ -96,6 +96,7 @@ Draft 2020-12 and a canonical
 | `mulgae-provider-heartbeat-result.v5` | `../examples/provider-heartbeat-result.v5.valid.json` |
 | `mulgae-review-preflight.v12` | `../examples/review-preflight.v12.valid.json` |
 | `mulgae-command-result.v25` | `../examples/command-result.v25.valid.json` |
+| `mulgae-command-result.v26` | `../examples/command-result.v26.valid.json` |
 | `mulgae-doctor-result.v9` | `../examples/doctor-result.v9.valid.json` |
 | `mulgae-provider-heartbeat-result.v6` | `../examples/provider-heartbeat-result.v6.valid.json` |
 | `mulgae-review-preflight.v13` | `../examples/review-preflight.v13.valid.json` |
@@ -105,7 +106,7 @@ contract has passed. Semantic validation, filesystem checks, cryptographic
 verification, and fail-closed readiness checks still apply after schema
 validation.
 
-Breaking changes require a new schema version. Current commands emit v25,
+Breaking changes require a new schema version. Current commands emit v26,
 doctor emits v9, provider heartbeat emits v6, and review preflight emits v13.
 Earlier command, doctor, heartbeat, and preflight schemas remain frozen
 for historical validation dependencies. Current live publications use review

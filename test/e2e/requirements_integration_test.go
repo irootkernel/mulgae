@@ -71,7 +71,7 @@ func TestIntegrationIsolatedReleaseFixtureRequirements(t *testing.T) {
 		if err := json.Unmarshal(result.stdout, &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if envelope["schema_version"] != "mulgae-command-result.v25" {
+		if envelope["schema_version"] != "mulgae-command-result.v26" {
 			t.Fatal("obsolete public envelope")
 		}
 		return envelope["result"].(map[string]any)
