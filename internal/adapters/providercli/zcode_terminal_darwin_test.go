@@ -286,6 +286,47 @@ func TestZCodeTerminalModelFailureClassification(t *testing.T) {
 	}
 }
 
+func TestZCodeTerminalStructuredDeliveryComposition(t *testing.T) {
+	profile := zcodeTerminalProfile{}
+	const nonce = "0123456789abcdef0123456789abcdef"
+	marker := terminalCompletionNoncePrefix + nonce
+	review := terminalProfileInvocation{
+		Purpose: terminalPurposeReview, PromptPath: "/private/tmp/input/prompt.md",
+		OutputPath: "/private/tmp/output/review.md", CompletionNonce: nonce,
+	}
+	const reviewInput = "Use Read to read the entire prompt file at /private/tmp/input/prompt.md through EOF. Follow its delivery instructions and use Write to write the required output to /private/tmp/output/review.md."
+	const reviewTrailer = "\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\nWrite the complete Markdown review report to /private/tmp/output/review.md with Write. After the output, the final non-empty line must be exactly:\n"
+	if profile.BuildInitialInput(review) != reviewInput || string(profile.BuildPromptTrailer(review)) != reviewTrailer+marker+"\n" {
+		t.Fatal("structured delivery changed the review instructions")
+	}
+	for _, tc := range []struct {
+		name, filename string
+		purpose        terminalInvocationPurpose
+	}{
+		{"extraction", stagedExtractionOutputFilename, terminalPurposeExtraction},
+		{"qualification", stagedProbeOutputFilename, terminalPurposeQualification},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inv := terminalProfileInvocation{
+				Purpose: tc.purpose, PromptPath: "/private/tmp/input/prompt.md",
+				OutputPath: filepath.Join("/private/tmp/output", tc.filename), CompletionNonce: nonce,
+			}
+			initial := profile.BuildInitialInput(inv)
+			if !strings.Contains(initial, inv.PromptPath) || !strings.Contains(initial, inv.OutputPath) ||
+				!strings.Contains(initial, "JSON-only instructions apply to the body") ||
+				!strings.Contains(initial, "separate final line") || strings.Contains(initial, nonce) {
+				t.Fatal("initial instruction must distinguish the JSON body from the required line kept in the prompt file")
+			}
+			trailer := string(profile.BuildPromptTrailer(inv))
+			if !strings.Contains(trailer, "JSON-only instructions apply to the body") ||
+				!strings.Contains(trailer, "same plain-text file") || !strings.Contains(trailer, inv.OutputPath) ||
+				!strings.HasSuffix(trailer, "\n"+marker+"\n") || strings.Count(trailer, marker) != 1 {
+				t.Fatal("prompt trailer must specify one staged file containing the body and a separate exact verification line")
+			}
+		})
+	}
+}
+
 func fixtureZCodePackage(t *testing.T, launcher string) herdr.ZCodePackage {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -377,6 +418,7 @@ func TestZCodeTerminalDriverOffline(t *testing.T) {
 	t.Setenv("DYLD_LIBRARY_PATH", "/ambient")
 	t.Setenv("NODE_OPTIONS", "--ambient")
 	profile := fixtureZCodeTerminalProfile(t)
+	const rejectedCatalog = "Requested model is absent from the Projected account catalog (revision 48).\nThe session stopped with no fallback model."
 	for _, tc := range []struct {
 		name, wantTools, wantStage string
 		wantStatus                 ports.ProviderExecutionStatus
@@ -390,11 +432,17 @@ func TestZCodeTerminalDriverOffline(t *testing.T) {
 		termination                ports.ProcessTermination
 		exit                       int
 		stderr                     string
+		screen                     string
+		turns                      int
 	}{
 		{name: "workspace", wantTools: "Read,Grep,Glob,Write", purpose: terminalPurposeReview, scope: domain.LiveSourceWorkspace, absent: true, reported: true, status: ports.TerminalProgramStatusDone, termination: ports.ProcessTerminationExited},
 		{name: "git", wantTools: "Read,Bash,Write", purpose: terminalPurposeReview, scope: domain.LiveSourceStage, absent: true, reported: true, status: ports.TerminalProgramStatusDone, termination: ports.ProcessTerminationExited},
 		{name: "extraction", wantTools: "Read,Write", purpose: terminalPurposeExtraction, absent: true, reported: true, status: ports.TerminalProgramStatusDone, termination: ports.ProcessTerminationExited},
 		{name: "model refusal before OSC", wantTools: "Read,Write", wantStage: "zcode_model_selection", wantStatus: ports.ProviderExecutionStatusConfigurationViolation, wantClass: domain.FailureConfiguration, purpose: terminalPurposeQualification, absent: true, termination: ports.ProcessTerminationExited, exit: 1, stderr: "Selected model unavailable"},
+		{name: "catalog refusal with reported but cleared status", wantTools: "Read,Write", wantStage: "zcode_model_selection", wantStatus: ports.ProviderExecutionStatusConfigurationViolation, wantClass: domain.FailureConfiguration, purpose: terminalPurposeQualification, absent: true, reported: true, termination: ports.ProcessTerminationExited, exit: 1, screen: rejectedCatalog},
+		{name: "catalog text after a turn", wantTools: "Read,Write", wantStage: "provider_execution_failed", wantStatus: ports.ProviderExecutionStatusUnavailable, wantClass: domain.FailureProviderUnavailable, purpose: terminalPurposeQualification, absent: true, reported: true, termination: ports.ProcessTerminationExited, exit: 1, screen: rejectedCatalog, turns: 1},
+		{name: "catalog refusal with invalid revision", wantTools: "Read,Write", wantStage: "provider_execution_failed", wantStatus: ports.ProviderExecutionStatusUnavailable, wantClass: domain.FailureProviderUnavailable, purpose: terminalPurposeQualification, absent: true, reported: true, termination: ports.ProcessTerminationExited, exit: 1, screen: strings.Replace(rejectedCatalog, "48", "0", 1)},
+		{name: "unrelated cleared startup status", wantTools: "Read,Write", wantStage: "provider_execution_failed", wantStatus: ports.ProviderExecutionStatusUnavailable, wantClass: domain.FailureProviderUnavailable, purpose: terminalPurposeQualification, absent: true, reported: true, termination: ports.ProcessTerminationExited, exit: 1, screen: "Selected model unavailable"},
 		{name: "blocked auth", wantTools: "Read,Write", wantStage: "zcode_account_configuration", wantStatus: ports.ProviderExecutionStatusConfigurationViolation, wantClass: domain.FailureConfiguration, purpose: terminalPurposeQualification, absent: true, reported: true, status: ports.TerminalProgramStatusBlocked, blocked: ports.TerminalBlockedKindAuth, termination: ports.ProcessTerminationExited, exit: 1},
 		{name: "blocked quota", wantTools: "Read,Write", wantStage: "provider_quota", wantStatus: ports.ProviderExecutionStatusQuota, wantClass: domain.FailureQuota, purpose: terminalPurposeQualification, absent: true, reported: true, status: ports.TerminalProgramStatusBlocked, blocked: ports.TerminalBlockedKindQuota, termination: ports.ProcessTerminationExited, exit: 1},
 		{name: "unsolicited signal", wantTools: "Read,Write", wantStage: "process_internal", wantStatus: ports.ProviderExecutionStatusInternalFailure, wantClass: domain.FailureInternal, purpose: terminalPurposeQualification, absent: true, reported: true, status: ports.TerminalProgramStatusError, termination: ports.ProcessTerminationSignaled, stderr: "Selected model unavailable"},
@@ -471,6 +519,7 @@ func TestZCodeTerminalDriverOffline(t *testing.T) {
 				}
 				input := ports.TerminalExecutionObservationInput{
 					Reported: tc.reported, ExitedBeforeReport: !tc.reported, ProgramStatus: tc.status, BlockedKind: tc.blocked,
+					TurnCount: tc.turns, ScreenCapture: []byte(tc.screen),
 				}
 				if tc.status == ports.TerminalProgramStatusDone {
 					input.TurnCount = 1

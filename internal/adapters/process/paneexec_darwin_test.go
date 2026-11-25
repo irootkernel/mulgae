@@ -167,6 +167,7 @@ type paneTestFixture struct {
 	controlPlaneDir string
 	paneControlDir  string
 	credentials     []string
+	runtimeTemp     string
 }
 
 func newPaneTestFixture(t *testing.T) paneTestFixture {
@@ -245,11 +246,14 @@ func (f paneTestFixture) buildLaunch(
 	for _, c := range f.credentials {
 		credRoots = append(credRoots, mustRoot(t, c))
 	}
-	boundary, err := ports.NewLiveReadOnlyBoundary(
-		[]ports.AnchoredRoot{mustRoot(t, f.source), mustRoot(t, f.neutral)},
-		credRoots,
-		mustRoot(t, f.writable),
-	)
+	readOnly := []ports.AnchoredRoot{mustRoot(t, f.source), mustRoot(t, f.neutral)}
+	writable := mustRoot(t, f.writable)
+	var boundary ports.LiveReadOnlyBoundary
+	if f.runtimeTemp == "" {
+		boundary, err = ports.NewLiveReadOnlyBoundary(readOnly, credRoots, writable)
+	} else {
+		boundary, err = ports.NewLiveReadOnlyBoundaryWithRuntimeTemp(readOnly, credRoots, writable, mustRoot(t, f.runtimeTemp))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,23 +638,33 @@ func TestPaneExecChild(t *testing.T) {
 		os.Exit(0)
 
 	case "bash-gate":
-		// Args: writable socket, IPv4, IPv6, denied executables, companion fixture.
-		if len(args) != 7 {
+		// Args: denied sockets, IPv4, IPv6, denied executables, companion, denied files.
+		if len(args) != 8 {
 			os.Exit(2)
 		}
-		writableSock := args[2]
 		ipv4Addr := args[3]
 		ipv6Addr := args[4]
 		deniedBins := strings.Split(args[5], ",")
 
-		// 1. Arbitrary unix socket (even inside WritableRoot!) must be denied EPERM.
-		if conn, err := net.DialTimeout("unix", writableSock, time.Second); err == nil {
-			_ = conn.Close()
-			fmt.Fprintln(os.Stderr, "writable unix socket connected under bash-gate")
-			os.Exit(61)
-		} else if !errors.Is(err, unix.EPERM) {
-			fmt.Fprintf(os.Stderr, "writable unix socket err=%v want EPERM\n", err)
-			os.Exit(62)
+		for _, socket := range strings.Split(args[2], ",") {
+			conn, err := net.DialTimeout("unix", socket, time.Second)
+			if err == nil {
+				_ = conn.Close()
+			}
+			if !errors.Is(err, unix.EPERM) {
+				fmt.Fprintf(os.Stderr, "socket %q err=%v want EPERM\n", socket, err)
+				os.Exit(62)
+			}
+		}
+		for _, path := range strings.Split(args[7], ",") {
+			fd, err := unix.Open(path, unix.O_RDONLY, 0)
+			if err == nil {
+				_ = unix.Close(fd)
+			}
+			if !errors.Is(err, unix.EPERM) {
+				fmt.Fprintf(os.Stderr, "protected file %q err=%v want EPERM\n", path, err)
+				os.Exit(61)
+			}
 		}
 
 		// 2. /private/var/run/mDNSResponder must remain allowed.
@@ -1756,14 +1770,30 @@ func TestPaneExecSeatbeltMissingTolerantSymlinkFailsClosedOnUnsafeTargets(t *tes
 func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 	f := newPaneTestFixture(t)
 	binary := canonicalTestExecutable(t)
-
-	// Unix socket inside WritableRoot (normally allowed, MUST be denied by B-1 Bash-gate!).
-	writableSock := filepath.Join(f.writable, "w.sock")
-	unixListener, err := net.Listen("unix", writableSock)
-	if err != nil {
-		t.Fatal(err)
+	f.runtimeTemp = filepath.Join(f.base, "rt")
+	f.credentials = []string{filepath.Join(f.nativeHome, ".zcode"), filepath.Join(f.nativeHome, "Library", "Keychains")}
+	for _, dir := range append([]string{f.runtimeTemp}, f.credentials...) {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
-	defer unixListener.Close()
+	var deniedSockets, deniedFiles []string
+	for _, root := range []string{f.writable, f.runtimeTemp, f.controlPlaneDir} {
+		path := filepath.Join(root, "local.sock")
+		listener, err := net.Listen("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = listener.Close() })
+		deniedSockets = append(deniedSockets, path)
+	}
+	for _, root := range append([]string{f.controlPlaneDir}, f.credentials...) {
+		path := filepath.Join(root, "protected.txt")
+		if err := os.WriteFile(path, []byte("synthetic protected input"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		deniedFiles = append(deniedFiles, path)
+	}
 
 	// Localhost IPv4 and IPv6 TCP listeners (MUST be denied by B-1 Bash-gate!).
 	tcp4, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -1780,6 +1810,8 @@ func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 	// Copy-and-exec defense: copied executable in WritableRoot AND repo-hosted executable in ReadOnlyRoots (source) MUST fail EPERM.
 	copiedInWritable := filepath.Join(f.writable, "copied-true")
 	copyFileExecutable(t, "/usr/bin/true", copiedInWritable)
+	copiedInRuntimeTemp := filepath.Join(f.runtimeTemp, "copied-true")
+	copyFileExecutable(t, "/usr/bin/true", copiedInRuntimeTemp)
 	repoExecutable := filepath.Join(f.source, "herdr-zcode")
 	copyFileExecutable(t, "/usr/bin/true", repoExecutable)
 
@@ -1806,18 +1838,35 @@ func TestPaneExecSeatbeltBashGateControls(t *testing.T) {
 		deniedBins = append(deniedBins, p)
 	}
 
-	spec := f.buildLaunch(
-		t,
-		binary,
-		[]string{"-test.run=^TestPaneExecChild$", "--", "paneexec", "bash-gate", writableSock, tcp4.Addr().String(), ipv6Addr, strings.Join(deniedBins, ","), companion},
-		nil,
-		func(b ports.LiveReadOnlyBoundary) (ports.LiveReadOnlyBoundary, error) {
-			return ports.NewLiveReadOnlyBoundaryWithBashGate(b)
-		},
-	)
-	out, runErr, _ := runSpecOnSyntheticPTY(t, spec.Argv(), []string{"HC_TERMINAL_ID=pane-b1-1"}, nil)
-	if runErr != nil || !bytes.Contains(out, []byte("PANE_BASH_GATE_OK")) {
-		t.Fatalf("B-1 Bash-gate controls failed: err=%v output=%q", runErr, string(out))
+	for _, tc := range []struct {
+		name, runtimeTemp string
+		deniedExec        []string
+	}{
+		{"baseline", "", deniedBins},
+		{"with_runtime_temp", f.runtimeTemp, append(deniedBins, copiedInRuntimeTemp)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := f
+			fixture.runtimeTemp = tc.runtimeTemp
+			fixture.paneControlDir = filepath.Join(f.controlPlaneDir, tc.name)
+			if err := os.Mkdir(fixture.paneControlDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			spec := fixture.buildLaunch(
+				t,
+				binary,
+				[]string{"-test.run=^TestPaneExecChild$", "--", "paneexec", "bash-gate",
+					strings.Join(deniedSockets, ","), tcp4.Addr().String(), ipv6Addr, strings.Join(tc.deniedExec, ","), companion, strings.Join(deniedFiles, ",")},
+				nil,
+				func(b ports.LiveReadOnlyBoundary) (ports.LiveReadOnlyBoundary, error) {
+					return ports.NewLiveReadOnlyBoundaryWithBashGate(b)
+				},
+			)
+			out, runErr, _ := runSpecOnSyntheticPTY(t, spec.Argv(), []string{"HC_TERMINAL_ID=pane-b1-1"}, nil)
+			if runErr != nil || !bytes.Contains(out, []byte("PANE_BASH_GATE_OK")) {
+				t.Fatalf("B-1 Bash-gate controls failed: err=%v output=%q", runErr, string(out))
+			}
+		})
 	}
 }
 

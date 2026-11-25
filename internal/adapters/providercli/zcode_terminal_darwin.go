@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -83,17 +84,24 @@ func (zcodeTerminalProfile) PrepareDisposableHomes(terminalProfileInvocation) ([
 }
 
 func (zcodeTerminalProfile) BuildInitialInput(inv terminalProfileInvocation) string {
-	return fmt.Sprintf("Use Read to read the entire prompt file at %s through EOF. Follow its delivery instructions and use Write to write the required output to %s.",
+	input := fmt.Sprintf("Use Read to read the entire prompt file at %s through EOF. Follow its delivery instructions and use Write to write the required output to %s.",
 		inv.PromptPath, inv.OutputPath)
+	if inv.Purpose == terminalPurposeReview {
+		return input
+	}
+	return input + " JSON-only instructions apply to the body. In the same Write call, include the body and copy the exact verification line from the prompt file onto a separate final line outside the body."
 }
 
 func (zcodeTerminalProfile) BuildPromptTrailer(inv terminalProfileInvocation) []byte {
-	description := "the complete Markdown review report"
 	if inv.Purpose != terminalPurposeReview {
-		description = "the exact requested JSON object, or the refusal only where allowed by the prompt"
+		return fmt.Appendf(nil, "\n\n---\nMULGAE STRUCTURED DELIVERY OVERRIDE\n"+
+			"JSON-only instructions apply to the body. Use one Write call to save both parts in the same plain-text file at %s.\n"+
+			"Start with the exact requested JSON object, or a refusal only if the prompt allows one.\n"+
+			"After a newline, copy the verification line below verbatim as the final line outside the JSON. Mulgae removes that line before parsing the body.\n"+
+			"%s%s\n", inv.OutputPath, terminalCompletionNoncePrefix, inv.CompletionNonce)
 	}
-	return fmt.Appendf(nil, "\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\nWrite %s to %s with Write. After the output, the final non-empty line must be exactly:\n%s%s\n",
-		description, inv.OutputPath, terminalCompletionNoncePrefix, inv.CompletionNonce)
+	return fmt.Appendf(nil, "\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\nWrite the complete Markdown review report to %s with Write. After the output, the final non-empty line must be exactly:\n%s%s\n",
+		inv.OutputPath, terminalCompletionNoncePrefix, inv.CompletionNonce)
 }
 
 func (zcodeTerminalProfile) ConfigureBoundary(base ports.LiveReadOnlyBoundary, inv terminalProfileInvocation) (ports.LiveReadOnlyBoundary, error) {
@@ -509,8 +517,14 @@ func (zcodeTerminalProfile) ClassifyFailure(term ports.TerminalExecutionObservat
 	status, _ := term.ProgramStatus()
 	blocked, _ := term.BlockedKind()
 	exit, exited := proc.ExitCode()
-	preReportFailure := !term.Reported() && proc.Termination() == ports.ProcessTerminationExited && exited && exit != 0
-	if !preReportFailure && status != ports.TerminalProgramStatusError &&
+	nonzeroExit := proc.Termination() == ports.ProcessTerminationExited && exited && exit != 0
+	preReportFailure := !term.Reported() && nonzeroExit
+	lifecycle, hasLifecycle := proc.LifecycleReceipt()
+	// A finished pane may remember that it reported OSC without retaining
+	// the startup status. Admit only the closed catalog refusal before any turn.
+	clearedStartupStatus := term.Reported() && status == "" && term.TurnCount() == 0 &&
+		nonzeroExit && hasLifecycle && len(lifecycle.SignalRequests()) == 0
+	if !preReportFailure && !clearedStartupStatus && status != ports.TerminalProgramStatusError &&
 		!(status == ports.TerminalProgramStatusBlocked && blocked == ports.TerminalBlockedKindAuth) {
 		return nil
 	}
@@ -523,7 +537,14 @@ func (zcodeTerminalProfile) ClassifyFailure(term ports.TerminalExecutionObservat
 	}
 	const maxDiagnostic = 16 * 1024
 	diagnostic = diagnostic[max(0, len(diagnostic)-maxDiagnostic):]
-	failure := zcodeTerminalConfigurationFailure(status, blocked, diagnostic)
+	var failure error
+	if clearedStartupStatus {
+		if projectedZCodeCatalogRefusal(diagnostic) {
+			failure = zcodeModelSelectionFailure()
+		}
+	} else {
+		failure = zcodeTerminalConfigurationFailure(status, blocked, diagnostic)
+	}
 	if failure != nil {
 		var typed *domain.Failure
 		if errors.As(failure, &typed) {
@@ -532,6 +553,20 @@ func (zcodeTerminalProfile) ClassifyFailure(term ports.TerminalExecutionObservat
 		}
 	}
 	return nil
+}
+
+func projectedZCodeCatalogRefusal(screen []byte) bool {
+	// Core may wrap the diagnostic across terminal rows.
+	diagnostic := strings.Join(strings.Fields(string(screen)), " ")
+	const prefix = "Requested model is absent from the Projected account catalog (revision "
+	const suffix = "). The session stopped with no fallback model."
+	_, rest, found := strings.Cut(diagnostic, prefix)
+	if !found {
+		return false
+	}
+	revision, _, complete := strings.Cut(rest, suffix)
+	value, err := strconv.ParseUint(revision, 10, 64)
+	return complete && err == nil && value > 0
 }
 
 func zcodeTerminalConfigurationFailure(status ports.TerminalProgramStatus, blocked ports.TerminalBlockedKind, screen []byte) error {

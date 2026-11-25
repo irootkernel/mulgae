@@ -638,6 +638,19 @@ anchors:
   - If any control fails or reveals a needed Seatbelt/flag adjustment, reconcile
     before starting `TASK-096`.
 
+The Apple Silicon spike used `hc 0.1.20`, `herdr-zcode 0.2.0` (20-file SHA-256
+`e23505b5eac11bac202461fad2c1882e61347edfc21c9e658a499510bc794111`), and
+`ZCode.app 4.0.0` with catalog revision 48. The Git turn under `B-1` observed
+`zcode-official-*/endpoint.sock` and read the original object with `git show`.
+The workspace artist read the PNG with shell tools disabled. The invalid
+model returned `zcode_model_selection`. Extraction and qualification passed
+after the delivery instructions separated the JSON body from its completion
+line. From the last observed working state through verified `ESRCH`, the
+upper bounds were 272.41 ms for the explicit-model review, 166.90 ms for
+extraction, and 159.73 ms for qualification. These controls combine results
+from several runs. Earlier full runs recorded selection-capture and staging
+failures.
+
 ### `TASK-096`: Atomic cutover of `FamilyZcode`, retirement of ZCode internals, and canonical docs
 
 - **Scope**:
