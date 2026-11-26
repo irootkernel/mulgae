@@ -826,7 +826,8 @@ Run each command on one physical line, and confirm that every named test runs:
 Use the standard checks after focused verification. Tagged compilation does
 not certify live provider behavior. Under the historical `v0.1.26` gate policy,
 Grok, Cursor, AGY, and opt-in Codex live certification were deferred to the
-five-provider release gate (Cursor was subsequently retired in `v0.1.28`).
+five-provider release gate (Cursor, Codex, and AGY review providers were
+subsequently retired in `v0.1.28`).
 
 ## Local doctor correction and extraction controls
 

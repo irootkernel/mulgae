@@ -154,9 +154,11 @@ mulgae review --diff origin/main...HEAD \
 `doctor --output json` returns `mulgae-doctor-result.v9`. It checks Config v5,
 project-local security, provider and role identities, exact executable/launcher
 availability, and adapter-owned local CLI version compatibility. The only
-provider process it may run is the fixed `--version` command; it does not
-authenticate, send a prompt or source, contact a provider API, create a review
-run, or start MCP. Versions above the latest verified version remain eligible
+provider processes it may run are fixed offline compatibility checks
+(`--version`, plus `herdr-zcode --version --json` and
+`herdr-zcode --check-desktop --json` for ZCode) without starting a daemon; it
+does not authenticate, send a prompt or source, contact a provider API, create
+a review run, or start MCP. Versions above the latest verified version remain eligible
 but are reported as `newer_than_verified`. Static-admission evidence and review
 qualification do not gate this offline readiness.
 The current result retains the v4 JSON member name `config_v3` for compatibility;

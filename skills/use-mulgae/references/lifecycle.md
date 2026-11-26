@@ -20,9 +20,11 @@ Current `mulgae-doctor-result.v9` is an offline contract. Read its independent c
 local-security, provider-identity, binary-availability, and CLI-compatibility
 dimensions. A configured provider can be offline-ready while static evidence is
 unavailable; `static_evidence_ready_provider_count` is separate from
-`offline_ready_provider_count`. Doctor may execute only the adapter-owned local
-`--version` command and never authenticates, sends a prompt, captures source, or
-contacts a provider API. A live review cannot change doctor readiness.
+`offline_ready_provider_count`. Doctor may execute only fixed offline
+compatibility commands (`--version`, plus `herdr-zcode --version --json` and
+`herdr-zcode --check-desktop --json` for ZCode) without starting a daemon, and
+never authenticates, sends a prompt, captures source, or contacts a provider
+API. A live review cannot change doctor readiness.
 
 Do not use heartbeat during ordinary diagnosis. When the user explicitly asks
 for a live check, disclose its effects and require both the provider selection

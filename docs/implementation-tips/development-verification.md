@@ -198,8 +198,8 @@ deleting scenarios is not a completion quota.
   `Makefile` declares a valid `RELEASE_VERSION := v<major>.<minor>.<patch>`
   line, passes `MULGAE_RELEASE_VERSION` to `./internal/releasecheck` in
   `test-release`, and stamps `main.buildVersion=$(RELEASE_VERSION)` in each of
-  the six exact-binary target slices (`test-release`, `test-e2e`,
-  `test-release`, `test-e2e`, `test-grok`, and `test-mcp-clients`).
+  the four exact-binary target slices (`test-release`, `test-e2e`,
+  `test-grok`, and `test-mcp-clients`).
   `internal/releasecheck` (`TestInstalledRootModuleContract`)
   and the manual/waiver temporary-`GOBIN` checks verify `mulgae --version`,
   `mulgae version`, and `mulgae version --json` on the installed binary.
@@ -290,7 +290,8 @@ Live-provider gates (`make test-e2e`, `make test-grok`, `make test-cursor`,
 `make test-agy`, and `MULGAE_E2E_OPT_IN=1 make test-e2e-opt-in`) were
 unexecuted under the activated harness-only `EPIC-015` policy; the mandatory
 `make test` release gate and the active multi-provider release-candidate
-obligations remain in force (with Cursor and `make test-cursor` subsequently
+obligations remain in force (with Cursor, Codex, and AGY review providers and
+`make test-cursor`, `make test-agy`, and `make test-e2e-opt-in` subsequently
 retired in `v0.1.28`).
 
 ## Known limits

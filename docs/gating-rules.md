@@ -62,8 +62,10 @@ access.
   their typed cause.
 - **Procedure:** Use a fresh mode-`0700` directory under the mounted writable
   `/Volumes/RootKernel/tmp`, or the normal system temporary directory when that
-  volume is unavailable. Keep `HOME`, `TMPDIR`, and `GOCACHE` beneath it;
-  preserve the existing `GOMODCACHE` and set `GOPROXY=off` and `GOSUMDB=off`.
+  volume is unavailable. Before changing `HOME`, export
+  `MULGAE_GO_EXECUTABLE="$(./dev path go)"` and preserve the existing module
+  cache with `GOMODCACHE="$(./dev go env GOMODCACHE)"`. Keep `HOME`, `TMPDIR`,
+  and `GOCACHE` beneath the gate root, and set `GOPROXY=off` and `GOSUMDB=off`.
   On native Apple Silicon macOS, run:
 
   ```sh

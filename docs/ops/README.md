@@ -81,8 +81,8 @@ authority; review execution does not repair, register or change resources.
 No-change review, local preflight and verified reads need no controller.
 
 An existing valid Config v5 project keeps its shared policy, private machine
-paths, configured role/provider routes, credential profiles and historical
-review/requirements results across this upgrade. Do not replace the pair with
+paths, configured role/provider routes, and historical review/requirements
+results across this upgrade. Do not replace the pair with
 a fresh `mulgae init`. Retained failed-run reports and retry inventories grant
 inspection authority only. Legacy unknown drain and unverified owned or
 borrowed work remain protected by native cleanup; preserve that obligation

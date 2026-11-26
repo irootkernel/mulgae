@@ -384,8 +384,8 @@ surfaces. A CLI process has no MCP invocation identity.
   inspection. Run it only when the user explicitly selects one configured
   provider and authorizes authentication, network access, cost, and remote
   logging with `--authorize-live-request`.
-- Read [authoring.md](references/authoring.md) only for provider, credential
-  profile, role, artist, or configuration authoring requests.
+- Read [authoring.md](references/authoring.md) only for provider, role,
+  artist, or configuration authoring requests.
 - Read [recovery.md](references/recovery.md) when state is stale, a mutation's
   outcome is unknown, publication is incomplete, or a provider failed.
 - Re-read effective configuration after configuration changes and exact run

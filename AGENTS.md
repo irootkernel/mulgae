@@ -386,14 +386,9 @@ complete format and examples. Reference: https://github.com/tmdgusya/lora
   not expose the build revision. Report that Master waived a repeated full gate
   and that release-binary and live E2E targets were not rerun. If any condition
   is not satisfied, run `make test`.
-- `make test` calls `make test-e2e-opt-in` after the mandatory E2E target. It
-  reports a stable skip unless `MULGAE_E2E_OPT_IN=1`; the default complete gate
-  therefore does not require Codex credentials.
-- When enabled, `make test-e2e-opt-in` requires an explicit primary Codex home
-  and runs all three roles (`logic`, `security`, and `documentation`) through
-  that primary Codex profile. Missing or unsafe
-  prerequisites and provider failures fail the target; do not downgrade them to
-  skips or substitute another provider.
+- The retired Codex opt-in target (`make test-e2e-opt-in`) was removed with the
+  Codex review provider; the active two-provider release obligation is
+  `make test` (ZCode) plus `make test-grok` (including `make test-herdr`).
 - Do not call a change release-ready when mandatory ZCode live checks were
   skipped, except under the explicit patch-only release rule above with the
   user's full-gate waiver recorded. Distinguish test success from commit, tag,
@@ -423,7 +418,7 @@ running it through Gaori from the repository root:
 - complete offline development gate: `gaori run offline`
 - release-binary checks: `gaori run release`
 - mandatory ZCode live E2E checks: `gaori run e2e`
-- opt-in Codex E2E: `gaori run e2e-opt-in`
+- standalone Grok live E2E checks (includes `make test-herdr`): `gaori run grok`
 - complete release gate: `gaori run full`
 
 For a dynamically selected Go test, use an explicit parser and tags:
