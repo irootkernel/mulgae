@@ -113,6 +113,11 @@ func compileLiveBoundaryProfile(ctx context.Context, boundary ports.LiveReadOnly
 			strconv.Quote(parent.String()) + ") (require-not (subpath " +
 			strconv.Quote(boundary.WritableRoot().String()) + "))))\n")
 	}
+	if parent, present := boundary.ManagedRuntimeTempParent(); present {
+		if err := writeManagedRuntimeTempRules(&profile, boundary, parent); err != nil {
+			return "", fmt.Errorf("process runner: managed runtime temp admission: %w", err)
+		}
+	}
 	ancestors := map[string]bool{}
 	missingCredentials := map[string]bool{}
 	for _, group := range []struct {
@@ -234,6 +239,34 @@ func compileLiveBoundaryProfile(ctx context.Context, boundary ports.LiveReadOnly
 		}
 	}
 	return profile.String(), nil
+}
+
+func writeManagedRuntimeTempRules(profile *strings.Builder, boundary ports.LiveReadOnlyBoundary, parent ports.AnchoredRoot) error {
+	owned, hasOwned := boundary.RuntimeTempRoot()
+	if hasOwned {
+		if err := validateLiveBoundaryDirectory(parent.String()); err != nil {
+			return err
+		}
+	}
+	parentPaths := []string{parent.String()}
+	if strings.HasPrefix(parent.String(), "/private/tmp/") {
+		// Unix sockets are named by the supplied path as well as its physical
+		// spelling. Include the standard temporary-directory alias.
+		parentPaths = append(parentPaths, strings.TrimPrefix(parent.String(), "/private"))
+	}
+	for _, path := range parentPaths {
+		subpath := "(subpath " + strconv.Quote(path) + ")"
+		files := subpath
+		sockets := "(remote unix-socket " + subpath + ")"
+		if hasOwned {
+			child := "(subpath " + strconv.Quote(filepath.Join(path, filepath.Base(owned.String()))) + ")"
+			files = "(require-all " + files + " (require-not " + child + "))"
+			sockets = "(require-all " + sockets + " (require-not (remote unix-socket " + child + ")))"
+		}
+		profile.WriteString("(deny file-read-data file-link " + files + ")\n")
+		profile.WriteString("(deny network-outbound " + sockets + ")\n")
+	}
+	return nil
 }
 
 func writeBashGateSeatbeltRules(profile *strings.Builder, boundary ports.LiveReadOnlyBoundary) error {

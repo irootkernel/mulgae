@@ -187,14 +187,12 @@ func validatedDisposableNamespaceEnvironment(environment []ports.EnvironmentVari
 		paths["MULGAE_PROVIDER_SCRATCH"] != filepath.Join(root, "scratch") {
 		return nil, fmt.Errorf("namespace environment escapes Mulgae-owned root")
 	}
-	// Temp state either stays inside the namespace root or, for ZCode
-	// namespaces, moves to the short shared runtime directory their
-	// Desktop bridge sockets require. All three temp variables must agree.
+	// ZCode's Desktop bridge uses a short, generation-owned socket path.
+	// Other providers keep temp state inside their namespace.
 	namespaceTemp := filepath.Join(root, "tmp")
-	switch paths["TMPDIR"] {
-	case namespaceTemp:
-	case zcodeRuntimeTempDirectory:
-	default:
+	name := filepath.Base(root)
+	generation := name[strings.LastIndexByte(name, '-')+1:]
+	if paths["TMPDIR"] != namespaceTemp && paths["TMPDIR"] != zcodeRuntimeTempPath(generation) {
 		return nil, fmt.Errorf("namespace environment escapes Mulgae-owned root")
 	}
 	if paths["TMP"] != paths["TMPDIR"] || paths["TEMP"] != paths["TMPDIR"] {

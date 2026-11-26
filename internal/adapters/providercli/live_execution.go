@@ -2,12 +2,15 @@ package providercli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
@@ -48,11 +51,98 @@ func (r *Registry) runInLiveSource(ctx context.Context, definition definition, i
 	return r.runInLiveTerminal(ctx, definition, invocation, execution, packet, namespace)
 }
 
+// ensureZCodeRuntimeTemp runs under terminalMu before host preparation. The
+// short child is allocated only when a ZCode pane is about to use the lease.
+func (lease *namespaceLease) ensureZCodeRuntimeTemp() (ports.AnchoredRoot, error) {
+	if lease.zcodeRuntimeTempOwner != nil {
+		return lease.liveRuntimeTempRoot()
+	}
+	nativePath := zcodeRuntimeTempPath(lease.generation)
+	if nativePath == "" {
+		return ports.AnchoredRoot{}, fmt.Errorf("invalid ZCode runtime generation")
+	}
+	if err := os.Mkdir(zcodeRuntimeTempParent, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return ports.AnchoredRoot{}, err
+	}
+	parentFD, err := unix.Open(zcodeRuntimeTempParent, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return ports.AnchoredRoot{}, err
+	}
+	parent := os.NewFile(uintptr(parentFD), "ZCode runtime temp parent")
+	var parentStat unix.Stat_t
+	if err := unix.Fstat(parentFD, &parentStat); err != nil || parentStat.Mode != unix.S_IFDIR|0o700 || parentStat.Uid != uint32(os.Geteuid()) {
+		return ports.AnchoredRoot{}, errors.Join(err, fmt.Errorf("unsafe ZCode runtime temp parent"), closeNamespaceDescriptor(parent))
+	}
+	name := filepath.Base(nativePath)
+	if err := unix.Mkdirat(parentFD, name, 0o700); err != nil {
+		return ports.AnchoredRoot{}, errors.Join(err, closeNamespaceDescriptor(parent))
+	}
+	if err := lease.retainZCodeRuntimeTempChild(parent, name); err != nil {
+		return ports.AnchoredRoot{}, err
+	}
+	return lease.liveRuntimeTempRoot()
+}
+
+func (lease *namespaceLease) retainZCodeRuntimeTempChild(parent *os.File, name string) error {
+	parentFD := int(parent.Fd())
+	var stat unix.Stat_t
+	if err := unix.Fstatat(parentFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil ||
+		stat.Mode != unix.S_IFDIR|0o700 || stat.Uid != uint32(os.Geteuid()) {
+		// Without a trusted inode we cannot unlink the name or report a
+		// complete drain. Release the descriptor without touching the entry.
+		identityErr := errors.Join(err, fmt.Errorf("unverified ZCode runtime temp child identity"))
+		if closeErr := closeNamespaceDescriptor(parent); closeErr != nil {
+			lease.pendingDescriptors = append(lease.pendingDescriptors, parent)
+			identityErr = errors.Join(identityErr, closeErr)
+		}
+		lease.terminalErr = errors.Join(lease.terminalErr, identityErr)
+		return identityErr
+	}
+	owner := &namespaceLease{
+		root: filepath.Join(zcodeRuntimeTempParent, name), rootName: name,
+		parentDirectory: parent, exactRootName: true,
+		cleanupDevice: stat.Dev, cleanupInode: stat.Ino,
+	}
+	lease.zcodeRuntimeTempOwner = owner
+	rootFD, err := openNamespaceRootDescriptor(parentFD, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	root := os.NewFile(uintptr(rootFD), "ZCode runtime temp child")
+	var opened unix.Stat_t
+	if err := unix.Fstat(rootFD, &opened); err != nil || opened.Dev != stat.Dev || opened.Ino != stat.Ino ||
+		opened.Mode != stat.Mode || opened.Uid != stat.Uid {
+		closeErr := closeNamespaceDescriptor(root)
+		if closeErr != nil {
+			owner.pendingDescriptors = append(owner.pendingDescriptors, root)
+		}
+		return errors.Join(err, fmt.Errorf("ZCode runtime temp child identity drift"), closeErr)
+	}
+	owner.rootDirectory = root
+	owner.rootInfo, err = owner.rootDirectory.Stat()
+	return err
+}
+
 func (lease *namespaceLease) liveRuntimeTempRoot() (ports.AnchoredRoot, error) {
-	if lease == nil || lease.zcodeRuntimeTempInfo == nil || !validCanonicalAbsolute(lease.zcodeRuntimeTemp) {
+	if lease == nil || lease.zcodeRuntimeTempOwner == nil {
 		return ports.AnchoredRoot{}, fmt.Errorf("missing native runtime directory identity")
 	}
-	return revalidateLiveRuntimeTempRoot(zcodeRuntimeTempDirectory, lease.zcodeRuntimeTemp, lease.zcodeRuntimeTempInfo)
+	owner := lease.zcodeRuntimeTempOwner
+	if owner.rootInfo == nil || owner.parentDirectory == nil || owner.rootDirectory == nil || owner.cleanupStage != namespaceCleanupInitial {
+		return ports.AnchoredRoot{}, fmt.Errorf("missing native runtime directory descriptors")
+	}
+	parent, err := owner.parentDirectory.Stat()
+	if err != nil {
+		return ports.AnchoredRoot{}, err
+	}
+	current, err := os.Lstat(zcodeRuntimeTempParent)
+	if err != nil || !current.IsDir() || current.Mode().Perm() != 0o700 || !os.SameFile(parent, current) {
+		return ports.AnchoredRoot{}, fmt.Errorf("native runtime directory parent drift")
+	}
+	if stat, ok := current.Sys().(*syscall.Stat_t); !ok || stat.Uid != uint32(os.Geteuid()) {
+		return ports.AnchoredRoot{}, fmt.Errorf("native runtime directory parent ownership drift")
+	}
+	return revalidateLiveRuntimeTempRoot(zcodeRuntimeTempPath(lease.generation), owner.root, owner.rootInfo)
 }
 
 func revalidateLiveRuntimeTempRoot(nativePath, expected string, retained os.FileInfo) (ports.AnchoredRoot, error) {

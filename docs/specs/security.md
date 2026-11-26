@@ -278,6 +278,12 @@ policy at `.mulgae/config.yaml`. Do not commit `.mulgae/local.yaml`,
 credentials, provider homes, any other `.mulgae/` artifacts, or exported review
 bundles.
 
+For the standard `/Applications/ZCode.app` bundle, Mulgae accepts the macOS
+`/Applications` directory when root owns it, the group is `admin`, and its
+mode is `0775`. Mulgae applies its strict ownership, write, symlink and
+excluded-root checks to the bundle itself. Mulgae checks the full path of a
+custom bundle or executable.
+
 Before opening a ZCode pane, Mulgae runs the verified companion's
 `prepare-isolated` on the host outside Seatbelt. It uses
 `/private/var/empty` as cwd, the installed user's `HOME`,
@@ -294,6 +300,12 @@ can zero and unlink any unconsumed auth after teardown. Seatbelt denies reads,
 writes and links to native `~/.zcode` and `~/Library/Keychains`. The managed
 namespace guard denies data reads and hard links into other namespaces across
 families and runs. Its exception is the current pane's writable namespace.
+
+Each ZCode namespace gets a short private child of `/tmp/mulgae-zcode` for its
+Unix sockets. The pane can write its own child. Seatbelt denies peer data reads,
+writes, links, and socket connections. Git reviews also run under the B-1
+socket restrictions. Mulgae removes the recorded child after the terminal
+runner establishes process teardown.
 
 Admitted provider state is projected only through the adapter-owned disposable
 namespace. Cleanup zeroes credential content only through a verified single-link

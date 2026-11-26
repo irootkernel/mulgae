@@ -881,7 +881,7 @@ func main() {
 	input, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	must(err)
 	promptPath := regexp.MustCompile("at (.+?) through EOF").FindStringSubmatch(input)
-	destination := regexp.MustCompile("write the required output to (.+?)\\.(?: JSON-only|\\r?\\n)").FindStringSubmatch(input)
+	destination := regexp.MustCompile("write the required output to (.+?)\\.(?: JSON-only| In the same Write call,|\\r?\\n)").FindStringSubmatch(input)
 	if len(promptPath) != 2 || len(destination) != 2 { panic("unexpected terminal input") }
 	body, err := os.ReadFile(promptPath[1])
 	must(err)

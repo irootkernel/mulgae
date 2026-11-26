@@ -193,7 +193,7 @@ installed to `~/.local` before starting `EPIC-019` execution:
 | `REQ-01` | Discover `herdr-zcode` safely (`MULGAE_HERDR_ZCODE_BIN` -> safe `PATH` -> `<nativeHome>/.local/bin/herdr-zcode`), verify canonical symlink chain and complete 20-runtime-file SHA-256 digest before every spawn | `TASK-094`, `TASK-096` | `internal/adapters/herdr`, `internal/adapters/providercli` | `-race` unit/tamper tests + `TASK-095` control #1 |
 | `REQ-02` | Execute host `prepare-isolated` outside Seatbelt (`cwd=/private/var/empty`, minimal env, 15s cap), validate `0600` `auth.json` + `0400` `catalog.json` via `O_NOFOLLOW`, classify stdout JSON `reason`, and register drain zeroing | `TASK-094`, `TASK-095`, `TASK-096` | `internal/adapters/providercli` | `-race` negative tests + `TASK-095` control #2 |
 | `REQ-03` | Narrow `BashGate` `process-exec` denial to exact Herdr multiplexers (`hc\|herdr\|herdr-core\|herdr-app\|herdrd`) while keeping repo-hosted executables, Herdr sockets, and `~/.zcode`/`Keychains` kernel-denied | `TASK-094`, `TASK-095`, `TASK-096` | `internal/adapters/process` | Darwin kernel Seatbelt tests + `TASK-095` control #8 |
-| `REQ-04` | Drive `FamilyZcode` through shared `ProviderPacketChannelTerminal` + `zcodeTerminalProfile` (`--runtime core --non-interactive --auth-file --consume-auth-file --catalog-file --no-copy-catalog --skip-desktop-inspect --runtime-dir`), preserving `RuntimeTempRoot` (`/tmp/mulgae-zcode`) and `<= 1s` `ESRCH` teardown | `TASK-094`, `TASK-095`, `TASK-096`, `TASK-098` | `internal/adapters/providercli`, `internal/app/reviewrun`, `internal/composition` | `TASK-095` controls #2–#10 + `make test-e2e` |
+| `REQ-04` | Drive `FamilyZcode` through shared `ProviderPacketChannelTerminal` + `zcodeTerminalProfile` (`--runtime core --non-interactive --auth-file --consume-auth-file --catalog-file --no-copy-catalog --skip-desktop-inspect --runtime-dir`), using a private `RuntimeTempRoot` (`/tmp/mulgae-zcode/<16hex>`) and preserving `<= 1s` `ESRCH` teardown | `TASK-094`, `TASK-095`, `TASK-096`, `TASK-098` | `internal/adapters/providercli`, `internal/app/reviewrun`, `internal/composition` | `TASK-095` controls #2–#10 + `make test-e2e` |
 | `REQ-05` | Retire and delete `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and internal `ZCode.app` component probing while keeping frozen historical readers and opaque `providers.zcode.app_bundle` Config v5 pass-through | `TASK-096` | `internal/adapters/{providercli,environment}`, `internal/app/reviewrun`, `internal/architecture` | Architecture/import guards + `make test-offline` |
 | `REQ-06` | Preserve `EPIC-018 TASK-091` same-profile ZCode qualification sharing while binding `herdr-core`, 20-file `herdr-zcode` digest, observed desktop/catalog receipt, and omitted-vs-explicit model/effort; add synthetic `zcode-logic` heartbeat | `TASK-096`, `TASK-098` | `internal/app/reviewrun`, `internal/adapters/providercli`, `internal/composition` | Qualification sharing/partition tests + `heartbeat --provider zcode` |
 | `REQ-07` | Run offline `mulgae doctor` checks via `herdr-zcode --version --json` + `--check-desktop --json` with additive `herdr_zcode_*` reasons under `doctor-result.v9` (zero Keychain/network/`herdr-core` starts) | `TASK-096` | `internal/app/doctor`, `internal/adapters/environment` | Doctor `-race` + schema tests |
@@ -229,9 +229,9 @@ Every Task execution and whole-Epic validation check must enforce clean ownershi
 | `<namespace>/auth/iso-<invID>/auth.json` | Mulgae namespace drain + `--consume-auth-file` | Zero-filled and unlinked (`nlink == 0`) before pane prompt delivery, or zero-filled and unlinked during namespace drain on `SIGKILL`/pre-consumption failure |
 | `<namespace>/auth/iso-<invID>/catalog.json` and `<namespace>/tmp/` | Mulgae namespace drain (`cleanupRoots()`) | Removed atomically with the disposable namespace |
 | `/private/tmp/mgh-<uid>/<16hex>/` (`herdr-core` session dir) | `productionRuntimeGraph.closeTerminalSession()` + Go watchdog | Empty `/private/tmp/mgh-<uid>` after every test/live run; zero surviving `hc`/`holder` processes |
-| `/tmp/mulgae-zcode/zcode-official-*/endpoint.sock` | `herdr-zcode` fast teardown + test cleanup | Zero surviving `ZCode`/`node`/`Electron`/`herdr-zcode` processes (`ESRCH <= 1s`) |
+| `/tmp/mulgae-zcode/<16hex>/zcode-official-*/endpoint.sock` | `herdr-zcode` fast teardown + Mulgae namespace drain | Zero surviving `ZCode`/`node`/`Electron`/`herdr-zcode` processes (`ESRCH <= 1s`); Mulgae removes the owned short runtime child and its contents |
 | Temporary build/test binaries & scratch fixtures | Task verification executor | Removed before staging/commit; never staged or committed |
-| Operator host state (`~/.zcode`, `~/.grok`, operator `default` `herdr-core`) | Read-only host invariant | SHA-256 digests of `~/.zcode` and `~/.grok` unchanged; operator `default` `herdr-core` PIDs untouched |
+| Operator host state for `TASK-098` (`~/.zcode`, `~/.grok`, operator `default` `herdr-core`) | Read-only host invariant | Existing host access restrictions pass, protected configuration and credential file SHA-256 digests match, and the operator's `default` `herdr-core` session is unchanged. Record the whole-home comparisons as observations. |
 
 ## Approved architecture and invariants
 
@@ -366,9 +366,9 @@ or heartbeat):
   - ZCode `app-server` binds `os.tmpdir()/zcode-official-*/endpoint.sock`, which
     exceeds macOS's 104-byte `sun_path` limit if pointed into deep namespace
     paths.
-  - Retain `RuntimeTempRoot` (`/tmp/mulgae-zcode`, `0700`) in the Seatbelt
-    profile and set `TMPDIR`/`TMP`/`TEMP` to `/tmp/mulgae-zcode` inside the
-    pane env while passing `--runtime-dir <namespace>/tmp` to `herdr-zcode`.
+  - Admit the private `RuntimeTempRoot` (`/tmp/mulgae-zcode/<16hex>`, `0700`)
+    in the Seatbelt profile and set the pane's `TMPDIR`/`TMP`/`TEMP` to that
+    child. Pass `--runtime-dir <namespace>/tmp` to `herdr-zcode`.
   - Keep native `~/.zcode` and `~/Library/Keychains` 100% kernel-denied inside
     `CredentialRoots` / `TerminalSecretRoots`.
 - **Narrowed `BashGate` `process-exec` regex**:
@@ -715,9 +715,14 @@ failures.
     Git `B-1` `BashGate`, `--requirements`, `artist` multimodal review,
     same-profile qualification sharing, and `mulgae heartbeat --provider zcode`),
     and live `make test-grok` regression.
-  - Verify via `ps` zero surviving Mulgae/ZCode/herdr-zcode/herdr-core
-    processes, empty `/private/tmp/mgh-<uid>`, untouched operator `default`
-    `herdr-core`, and unchanged `~/.zcode` and `~/.grok` SHA-256 digests.
+  - Verify the existing host access restrictions. Compare the protected files
+    `~/.zcode/v2/setting.json`, `~/.zcode/v2/credentials.json`, and
+    `~/.grok/auth.json` by SHA-256 and verify that the operator's `default`
+    `herdr-core` session is unchanged. Use `ps` and the before-and-after
+    runtime directory inventory to verify zero surviving execution-owned
+    processes or temporary paths and an empty `/private/tmp/mgh-<uid>`.
+    Record the whole-home comparisons as observations. Both homes changed
+    during no-invocation controls on the shared host.
   - Promote `docs/architecture-decision-records/zcode-herdr-core-transport.md`
     to `Accepted` (marking `zcode-app-server-transport.md` as `Superseded`) and
     close `DF-030` in `docs/deferred-feedback/README.md`.

@@ -15,6 +15,7 @@ const defaultBashGateMDNSResponderSocket = "/private/var/run/mDNSResponder"
 // guard. Filesystem admission remains the process adapter's responsibility.
 type LiveReadOnlyBoundary struct {
 	managedNamespaces          AnchoredRoot
+	managedRuntimeTempParent   AnchoredRoot
 	readOnly                   []AnchoredRoot
 	credentials                []AnchoredRoot
 	controlPlaneRoots          []AnchoredRoot
@@ -42,6 +43,20 @@ func NewLiveReadOnlyBoundaryWithManagedNamespaces(boundary LiveReadOnlyBoundary,
 
 func (boundary LiveReadOnlyBoundary) ManagedNamespaceRoot() (AnchoredRoot, bool) {
 	return boundary.managedNamespaces, boundary.managedNamespaces.Valid()
+}
+
+// NewLiveReadOnlyBoundaryWithManagedRuntimeTemps prevents peer panes from
+// reading or connecting to isolated temporary state under the managed parent.
+func NewLiveReadOnlyBoundaryWithManagedRuntimeTemps(boundary LiveReadOnlyBoundary, parent AnchoredRoot) (LiveReadOnlyBoundary, error) {
+	boundary.managedRuntimeTempParent = parent
+	if !parent.Valid() || !boundary.Valid() {
+		return LiveReadOnlyBoundary{}, fmt.Errorf("live read-only boundary: invalid managed runtime temp parent")
+	}
+	return boundary, nil
+}
+
+func (boundary LiveReadOnlyBoundary) ManagedRuntimeTempParent() (AnchoredRoot, bool) {
+	return boundary.managedRuntimeTempParent, boundary.managedRuntimeTempParent.Valid()
 }
 
 // NewLiveReadOnlyBoundaryWithRuntimeTemp adds the existing trusted native
@@ -326,6 +341,11 @@ func (boundary LiveReadOnlyBoundary) Valid() bool {
 	}
 	if boundary.runtimeTemp.Valid() && !validLivePolicyRoot(boundary.runtimeTemp) {
 		return false
+	}
+	if parent := boundary.managedRuntimeTempParent; parent.Valid() {
+		if !validLivePolicyRoot(parent) || boundary.runtimeTemp.Valid() && filepath.Dir(boundary.runtimeTemp.String()) != parent.String() {
+			return false
+		}
 	}
 	if parent := boundary.managedNamespaces; parent.Valid() {
 		if !validLivePolicyRoot(parent) || !strings.HasPrefix(boundary.writable.String(), parent.String()+"/") {

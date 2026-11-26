@@ -128,21 +128,20 @@ changes, per-item findings isolation, and ZCode non-extraction narration
 filtering remain outside EPIC-018. Release, installation, commit, push, and
 external-effect authority remain separate.
 
-EPIC-019 is adopted as `Planned` following completed EPIC-017 and EPIC-018 with
+EPIC-019 follows completed EPIC-017 and EPIC-018 with
 no dependency on EPIC-016. Its five member Tasks (`TASK-094` through
 `TASK-098`: four substantive member Goals plus whole-Epic validation,
 certification, and closeout) execute sequentially in table order under the
 temporary execution SOT
 [ZCode herdr-core terminal runtime migration](../todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
-and planned
+and the accepted
 [ZCode herdr-core terminal transport ADR](../architecture-decision-records/zcode-herdr-core-transport.md).
-EPIC-019 execution is gated on an external companion `herdr-zcode` `0.2.0`
-release committed, live-certified, and installed to `~/.local` providing
+EPIC-019 qualified against the external companion `herdr-zcode` `0.2.0`
+release installed to `~/.local` providing
 `--catalog-file`, `prepare-isolated`, and `--check-desktop --json` (advertised
 via `--version --json`, verified via its agreed 20-runtime-file SHA-256
-fingerprint). Until `TASK-096` and `TASK-097` land, canonical specs,
-architecture, gating rules, deferred feedback, and embedded assets continue
-describing the implemented ZCode app-server runtime. Release, installation,
+fingerprint). `TASK-096` and `TASK-097` landed the terminal transport and
+its policy cutover. Release, installation,
 commit, push, and external-effect authority remain separate.
 
 Within an executable Epic, run Tasks in table order as independent sequential
@@ -1320,7 +1319,7 @@ gates `EPIC-019` execution.
 
 Detailed SOT: [ZCode herdr-core terminal runtime migration](../todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
 
-Design Decision: [ZCode herdr-core terminal transport](../architecture-decision-records/zcode-herdr-core-transport.md) (`Accepted design for planned implementation`)
+Design Decision: [ZCode herdr-core terminal transport](../architecture-decision-records/zcode-herdr-core-transport.md) (`Accepted`)
 
 Goal: migrate Mulgae's `zcode` review provider (`FamilyZcode`) onto Mulgae's
 shared isolated `herdr-core` terminal runtime (`ProviderPacketChannelTerminal`,
@@ -1332,8 +1331,8 @@ absorbed solely in `herdr-zcode`; default new projects initialized via
 `mulgae init` to `account:zai-individual-coding-plan/GLM-5.4` with `max`
 reasoning effort (`mulgae-command-result.v26`) while keeping omitted Config v5
 fields on ZCode's current session model and effort; preserve Config v5 and
-`doctor-result.v9`; and unify workspace reviews as shell-free (`DF-030`
-closure pending `TASK-095` `artist` `Read` confirmation).
+`doctor-result.v9`; and unify workspace reviews as shell-free
+(`TASK-095` confirmed `artist` image reads through `Read`).
 
 Approved design boundaries (complete mechanics, external `herdr-zcode`
 contract, requirement traceability matrix, member-scope roster, disposable
@@ -1359,7 +1358,8 @@ cleanup contract, security invariants, per-Task checklists, and the 10-item
   output validation, stdout JSON `reason` classification, and namespace drain
   zeroing; the sandboxed pane executes
   `herdr-zcode --runtime core --non-interactive --interaction-policy block --auth-file ... --consume-auth-file --catalog-file ... --no-copy-catalog --skip-desktop-inspect --runtime-dir <namespace>/tmp`
-  with `RuntimeTempRoot` (`/tmp/mulgae-zcode`) for `endpoint.sock`, native
+  with a separate private `RuntimeTempRoot` (`/tmp/mulgae-zcode/<16hex>`)
+  for `endpoint.sock`, native
   `~/.zcode` and `~/Library/Keychains` kernel-denied, and narrowed `BashGate`
   `process-exec` denial (`^(.*/)?(hc|herdr|herdr-core|herdr-app|herdrd)$`).
 - **Model default policy and Config v5 preservation**: `mulgae init` writes
@@ -1392,7 +1392,7 @@ copied checkouts; no Mulgae-specific prompt/staging/output logic inside
 | TASK-095 | Completed | Add and execute a build-tagged live go/no-go spike (`//go:build darwin && arm64 && live_zcode_herdr`) certifying real `hc 0.1.20` + `__mulgae_paneexec_v1` + Seatbelt (`PaneTTY` + `RuntimeTempRoot` + `B-1` `BashGate`) + installed `herdr-zcode` (`prepare-isolated`, `--check-desktop --json`, `--runtime core --non-interactive --auth-file --consume-auth-file --catalog-file`) + `ZCode.app 4.0.0` across all 10 controls: package/offline checks, auth consumption before prompt delivery, `GLM-5.4`/`max`, omitted-model preservation, effort-only selection, invalid-model fail-closed rejection, shell-free workspace + `artist` multimodal `Read`, Git `B-1` `BashGate` (`endpoint.sock` compatibility + `git show` + `artist`), extraction/qualification staging, and `<= 1s` `ESRCH` teardown with zero survivors. | Live spike evidence (all 10 controls green on real host runtime with untouched `~/.zcode` and `ps`-verified untouched operator `default` `herdr-core`); stop and reconcile before `TASK-096` if any go/no-go control fails. |
 | TASK-096 | Completed | Atomically cut over `FamilyZcode` onto `ProviderPacketChannelTerminal` + `zcodeTerminalProfile` across `providercli`, `reviewrun`, `doctor`, `composition`, and `environment`; bind `herdr-core` + `herdr-zcode` package digest + observed desktop/catalog receipt into `RuntimeSafetyPolicyForZCodeTerminal` and qualification proofs while preserving `EPIC-018 TASK-091` same-profile qualification sharing; add synthetic `zcode-logic` heartbeat registration; extend `doctor` offline checks for `herdr-core` + `herdr-zcode` (`--version --json`, `--check-desktop --json`, additive `herdr_zcode_*` reasons) without probing `ZCode.app` internals; retire and delete `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and obsolete `ZCode.app` internal-file probing while retaining frozen historical readers; update offline fake E2E harness, `Makefile` `test-e2e`, embedded help assets (double-generated idempotently), and canonical specs/architecture/gating/tips/README/CHANGELOG (closing `DF-030` if workspace shell-free passed `TASK-095`). | Focused `-race` tests across all affected packages, architecture/import guards confirming zero remaining ZCode-internal file/Keychain coupling, double `./dev go generate ./internal/app/init && ./dev go generate ./internal/builtin` idempotence, 4-tag-matrix `go vet` / `golangci-lint`, updated offline E2E fakes, and `make test-offline` + `make test-release`. |
 | TASK-097 | Completed | Implement ZCode `init` generation defaults (`account:zai-individual-coding-plan/GLM-5.4` and `max`) with independent `"mulgae_default"` provenance for new projects, preserve existing Config v5 omission semantics (omitting `--model`/`--reasoning-effort` keeps ZCode's current session model and effort) and `--refresh-local` rejection, introduce `mulgae-command-result.v26.schema.json` + paired valid example (retaining `v25` frozen for backward reads), regenerate assets twice idempotently, and update `docs/specs/contracts.md`, `README.md`, and `skills/use-mulgae`. | Focused `-race` tests across `init`, `config`, `jsonschema`, `builtin`, `entrypoint/mulgae`, and `entrypoint/mcp` covering neither/model-only/effort-only/both, `--refresh-local`, existing-config preservation, `v25` backward compatibility, `v26` schema validation, and double generator idempotence. |
-| TASK-098 | Planned | Certify the integrated `EPIC-019` candidate end-to-end on native Apple Silicon macOS (`make test-offline`, `make test-release`, `make test-herdr`, mandatory live ZCode `make test-e2e` covering `GLM-5.4`/`max`, omitted-model preservation, Git `B-1` `BashGate`, `--requirements`, `artist` multimodal review, qualification sharing, and `heartbeat --provider zcode`, plus live `make test-grok` regression), promote `zcode-herdr-core-transport.md` to `Accepted` (superseding `zcode-app-server-transport.md`), close `DF-030`, and prepare `EPIC-019` for Master's explicit acceptance. | All exact-candidate gates green, `ps`-verified zero surviving processes and untouched operator `default` `herdr-core`, empty `/private/tmp/mgh-<uid>`, unchanged `~/.zcode` and `~/.grok` digests, canonical doc readback, and `git diff --check`. |
+| TASK-098 | Completed | Certify the integrated `EPIC-019` candidate end-to-end on native Apple Silicon macOS (`make test-offline`, `make test-release`, `make test-herdr`, mandatory live ZCode `make test-e2e` covering `GLM-5.4`/`max`, omitted-model preservation, Git `B-1` `BashGate`, `--requirements`, `artist` multimodal review, qualification sharing, and `heartbeat --provider zcode`, plus live `make test-grok` regression), promote `zcode-herdr-core-transport.md` to `Accepted` (superseding `zcode-app-server-transport.md`), close `DF-030`, and prepare `EPIC-019` for Master's explicit acceptance. | All exact-candidate gates and existing host access checks pass. Protected ZCode settings and credentials, Grok credentials, and the operator's `default` `herdr-core` session stay unchanged. `ps` and runtime directory comparisons show zero execution-owned residue and an empty `/private/tmp/mgh-<uid>`. Whole-home hash comparisons are recorded as observations. Canonical doc readback and `git diff --check` pass. |
 
 ### Epic acceptance
 
@@ -1422,9 +1422,11 @@ copied checkouts; no Mulgae-specific prompt/staging/output logic inside
       difference.
 - [ ] Complete exact-candidate gates (`make test-offline`, `make test-release`,
       `make test-herdr`, mandatory live ZCode `make test-e2e`, and live
-      `make test-grok` regression) pass on native Apple Silicon macOS with
-      untouched operator `default` `herdr-core` and unchanged `~/.zcode`/
-      `~/.grok`.
+      `make test-grok` regression) pass on native Apple Silicon macOS. Existing
+      host access checks pass, protected provider files and the operator's
+      `default` `herdr-core` session stay unchanged, and execution-owned
+      processes and temporary paths are removed. Whole-home hash comparisons
+      are recorded as observations.
 - [ ] Durable outcomes are promoted to canonical specs, architecture, gating
       rules, implementation tips, embedded assets, `CHANGELOG.md`, `README.md`,
       `skills/use-mulgae`, and accepted ADR (superseding

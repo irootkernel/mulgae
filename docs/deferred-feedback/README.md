@@ -305,13 +305,16 @@ work.
   but its message can mislead. Re-entry: when these fakes next change,
   report failures through return values checked on the test goroutine.
 
-- `DF-030` Integrated certification of ZCode local control-plane isolation.
+- `DF-030` Closed by `TASK-098`. Native verification certified ZCode local
+  control-plane isolation.
   The workspace profile runs shell-free. The index and commit profiles use the
   shared `B-1` local socket and loopback restrictions. The managed namespace
   guard also blocks projected credential reads by sibling Grok and ZCode panes
   and by peers in another run. The spike and offline Darwin checks cover these
-  boundaries with disposable fixtures. `TASK-098` owns integrated
-  certification of the exact installed candidate.
+  boundaries with disposable fixtures. The integrated ZCode E2E and serial Git
+  requirements check passed. The serial check preserved protected provider
+  files and the operator's Herdr session and removed its processes and
+  temporary paths. Whole-home comparisons recorded shared host changes.
 
 Promote an epic-sized finding to a TODO candidate or an adopted roadmap work
 unit. Do not use this index as a second roadmap or status authority.

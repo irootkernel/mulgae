@@ -32,7 +32,7 @@ func TestE2EGrokReleaseBinaryReview(t *testing.T) {
 	defer scenario.end()
 
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
-	grok := requireLiveExecutable(t, "MULGAE_E2E_GROK_EXECUTABLE", lookupLiveExecutable(t, "grok"))
+	grok := requireLiveExecutable(t, "MULGAE_E2E_GROK_EXECUTABLE", "grok")
 	validator := newLiveE2EValidator(t)
 	environment := liveE2EEnvironment{binary: binary}
 	installed, err := user.LookupId(strconv.Itoa(os.Geteuid()))
@@ -156,7 +156,7 @@ func TestE2EGrokReleaseBinaryReview(t *testing.T) {
 			"--objective", "Review the workspace thoroughly and carefully analyze every function before responding.",
 		)
 		cmd.Dir = project
-		cmd.Env = os.Environ()
+		cmd.Env = liveFixtureCommandEnvironment()
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -353,7 +353,7 @@ func startGrokLiveMCPClient(t *testing.T, ctx context.Context, binary, project s
 	t.Helper()
 	cmd := exec.CommandContext(ctx, binary, "mcp", "--project-root", project)
 	cmd.Dir = project
-	cmd.Env = os.Environ()
+	cmd.Env = liveFixtureCommandEnvironment()
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

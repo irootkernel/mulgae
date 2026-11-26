@@ -16,6 +16,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ type liveE2EEnvironment struct {
 	binary         string
 	nativeHome     string
 	zcodeAppBundle string
+	zcodeCompanion string
 }
 
 type liveRoleReportURI struct {
@@ -59,6 +61,9 @@ type liveCommandEnvelope struct {
 		RoleReportURIs     []liveRoleReportURI `json:"role_report_uris"`
 		Policy             json.RawMessage     `json:"policy"`
 		Doctor             json.RawMessage     `json:"doctor"`
+		Heartbeat          json.RawMessage     `json:"heartbeat"`
+		Requirements       json.RawMessage     `json:"requirements"`
+		Preflight          json.RawMessage     `json:"preflight"`
 		Content            string              `json:"content"`
 		Encoding           string              `json:"encoding"`
 		ContentSHA256      string              `json:"content_sha256"`
@@ -183,9 +188,14 @@ type liveInvocationStatus struct {
 }
 
 type liveRuntimeEvent struct {
-	Event    string `json:"event"`
-	Provider string `json:"provider"`
-	Outcome  string `json:"outcome"`
+	Event        string `json:"event"`
+	Component    string `json:"component"`
+	Operation    string `json:"operation"`
+	InvocationID string `json:"invocation_id"`
+	Provider     string `json:"provider"`
+	Outcome      string `json:"outcome"`
+	Termination  string `json:"termination"`
+	ExitCode     *int   `json:"exit_code"`
 }
 
 type liveE2ELogScope struct {
@@ -229,7 +239,8 @@ func TestE2EZCodeGrokReviewAggregation(t *testing.T) {
 	assertLiveDoctorPrequalification(t, doctorResult.Result.Doctor)
 
 	expected := map[string]string{"logic": "zcode-logic", "security": "zcode-security"}
-	run := runLiveRecoverableWorkflowWithGate(t, validator, environment, project, "zcode-grok-review-aggregation", expected, validateLiveSingleInvocationGate,
+	observeLaunches := observeLiveZCodeLaunches(t, environment, project)
+	run := runLiveZCodeReview(t, validator, environment, project, "zcode-grok-review-aggregation", expected,
 		"review", "--workspace",
 		"--objective", "Review the changed fixture strictly within your assigned functional role. Return a concise Markdown role report. The logic role must read counter.go and reproduce its logic-read marker verbatim. The security role must read report.go and reproduce its security-read marker verbatim. It is valid to report no defects; report only concrete actionable defects supported by the selected original source.",
 		"--roles", "logic,security", "--output", "json",
@@ -247,6 +258,7 @@ func TestE2EZCodeGrokReviewAggregation(t *testing.T) {
 	)
 	assertLiveRoleReportURIEquality(t, status.Result.RoleReportURIs, run.envelope.Result.RoleReportURIs)
 	assertNoProjectProviderLocks(t, project)
+	assertLiveZCodeLaunches(t, observeLaunches(), liveDefaultZCodeModel, "max", map[string]int{"Read,Write": 1, "Read,Grep,Glob,Write": 2})
 	scenario.status = "passed"
 }
 
@@ -284,8 +296,6 @@ func configureLiveMixedReview(t *testing.T, project string) {
 	if config.Providers.ZCode == nil {
 		t.Fatalf("automatic init omitted required providers: %#v", config.Providers)
 	}
-	config.Providers.ZCode.Model = "account:zai-individual-coding-plan/GLM-5.3"
-	config.Providers.ZCode.ReasoningEffort = "high"
 	config.Roles.Logic.PrimaryProvider = "zcode"
 	config.Roles.Security.PrimaryProvider = "zcode"
 	config.Review.RequiredRoles = []string{"logic", "security"}
@@ -344,7 +354,7 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 	if discoverErr != nil || profile.Executable() == "" || companion.DesktopBelowMinimum {
 		t.Fatalf("ZCode production discovery failed: reason=%q error=%v", profile.Reason(), discoverErr)
 	}
-	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeAppBundle: zcodeAppBundle}
+	return liveE2EEnvironment{binary: binary, nativeHome: installed.HomeDir, zcodeAppBundle: zcodeAppBundle, zcodeCompanion: companion.Executable}
 }
 
 func requireLiveExecutable(t *testing.T, environmentName, fallback string) string {
@@ -357,7 +367,14 @@ func requireLiveExecutable(t *testing.T, environmentName, fallback string) strin
 }
 
 func resolveLiveExecutable(environmentName, fallback string) (string, error) {
-	path := envOrDefault(environmentName, fallback)
+	path := envOrDefault(environmentName, "")
+	if path == "" && fallback != "" {
+		var err error
+		path, err = exec.LookPath(fallback)
+		if err != nil {
+			return "", fmt.Errorf("required live provider launcher %q is unavailable: %w", fallback, err)
+		}
+	}
 	if !filepath.IsAbs(path) {
 		resolved, err := filepath.Abs(path)
 		if err != nil {
@@ -403,15 +420,6 @@ func resolveLiveDirectory(environmentName, fallback string) (string, error) {
 		return "", fmt.Errorf("%s is not a directory: %q", environmentName, path)
 	}
 	return path, nil
-}
-
-func lookupLiveExecutable(t *testing.T, name string) string {
-	t.Helper()
-	path, err := exec.LookPath(name)
-	if err != nil {
-		t.Fatalf("required live provider launcher %q is unavailable: %v", name, err)
-	}
-	return path
 }
 
 func envOrDefault(name, fallback string) string {
@@ -499,7 +507,7 @@ func runLiveMulgaeAllowed(t *testing.T, validator *jsonschema.Validator, environ
 	defer cancel()
 	command := exec.CommandContext(ctx, environment.binary, arguments...)
 	command.Dir = project
-	command.Env = os.Environ()
+	command.Env = liveFixtureCommandEnvironment()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
@@ -531,6 +539,18 @@ func runLiveMulgaeAllowed(t *testing.T, validator *jsonschema.Validator, environ
 		t.Fatalf("mulgae %s envelope does not match process exit: %#v", arguments[0], envelope.Exit)
 	}
 	return envelope
+}
+
+func liveFixtureCommandEnvironment() []string {
+	// go test prepends GOROOT/bin even when the pinned toolchain wrapper
+	// already supplied it. Preserve lookup order and freeze each entry once.
+	var startupPath []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if !slices.Contains(startupPath, dir) {
+			startupPath = append(startupPath, dir)
+		}
+	}
+	return append(os.Environ(), "PATH="+strings.Join(startupPath, string(os.PathListSeparator)))
 }
 
 func containsLiveExit(values []int, value int) bool {
@@ -756,6 +776,14 @@ func TestLivePrerequisitePathsFailClosed(t *testing.T) {
 	if err := os.WriteFile(nonExecutable, []byte("provider\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("executable/override_without_path_launcher", func(t *testing.T) {
+		t.Setenv("PATH", "")
+		t.Setenv("MULGAE_E2E_TEST_EXECUTABLE", executable)
+		path, err := resolveLiveExecutable("MULGAE_E2E_TEST_EXECUTABLE", "grok")
+		if err != nil || path != executable {
+			t.Fatalf("resolveLiveExecutable returned %q, %v; want %q", path, err, executable)
+		}
+	})
 	for _, test := range []struct {
 		name  string
 		path  string
@@ -1130,7 +1158,7 @@ func assertLiveConfigMatrix(t *testing.T, raw json.RawMessage) {
 func assertLiveMixedReviewConfig(t *testing.T, project string) {
 	t.Helper()
 	config := readE2EConfig(t, project)
-	if config.Providers.ZCode == nil || config.Providers.ZCode.Model != "account:zai-individual-coding-plan/GLM-5.3" || config.Providers.ZCode.ReasoningEffort != "high" {
+	if config.Providers.ZCode == nil || config.Providers.ZCode.Model != liveDefaultZCodeModel || config.Providers.ZCode.ReasoningEffort != "max" {
 		t.Fatalf("mixed-review ZCode model selection = %#v", config.Providers.ZCode)
 	}
 	if config.Resources.MaxActiveLanes != 2 || config.Resources.PrimaryRepairAttempts != 0 ||
@@ -1168,13 +1196,21 @@ func assertLiveReportsOnlyAggregation(t *testing.T, run livePublishedRun) {
 }
 
 func validateLiveProviderQualificationHealth(project string, run livePublishedRun, expected map[string]string) error {
+	events, err := readLiveRuntimeEvents(project, run)
+	if err != nil {
+		return err
+	}
+	return validateLiveQualificationEvents(events, expected)
+}
+
+func readLiveRuntimeEvents(project string, run livePublishedRun) ([]liveRuntimeEvent, error) {
 	if run.envelope.Result.SessionID == nil || run.envelope.Result.RunID == nil {
-		return fmt.Errorf("run has no diagnostic identity")
+		return nil, fmt.Errorf("run has no diagnostic identity")
 	}
 	path := filepath.Join(project, ".mulgae", "diagnostics", *run.envelope.Result.SessionID, *run.envelope.Result.RunID, "mulgae-runtime.jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read runtime diagnostic log: %w", err)
+		return nil, fmt.Errorf("read runtime diagnostic log: %w", err)
 	}
 	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
 	events := make([]liveRuntimeEvent, 0, len(lines))
@@ -1184,11 +1220,11 @@ func validateLiveProviderQualificationHealth(project string, run livePublishedRu
 		}
 		var event liveRuntimeEvent
 		if err := json.Unmarshal(line, &event); err != nil {
-			return fmt.Errorf("decode runtime diagnostic event %d: %w", index+1, err)
+			return nil, fmt.Errorf("decode runtime diagnostic event %d: %w", index+1, err)
 		}
 		events = append(events, event)
 	}
-	return validateLiveQualificationEvents(events, expected)
+	return events, nil
 }
 
 func validateLiveQualificationEvents(events []liveRuntimeEvent, expected map[string]string) error {

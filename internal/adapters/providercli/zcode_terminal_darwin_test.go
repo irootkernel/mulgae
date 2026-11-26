@@ -286,7 +286,7 @@ func TestZCodeTerminalModelFailureClassification(t *testing.T) {
 	}
 }
 
-func TestZCodeTerminalStructuredDeliveryComposition(t *testing.T) {
+func TestZCodeTerminalDeliveryComposition(t *testing.T) {
 	profile := zcodeTerminalProfile{}
 	const nonce = "0123456789abcdef0123456789abcdef"
 	marker := terminalCompletionNoncePrefix + nonce
@@ -294,10 +294,15 @@ func TestZCodeTerminalStructuredDeliveryComposition(t *testing.T) {
 		Purpose: terminalPurposeReview, PromptPath: "/private/tmp/input/prompt.md",
 		OutputPath: "/private/tmp/output/review.md", CompletionNonce: nonce,
 	}
-	const reviewInput = "Use Read to read the entire prompt file at /private/tmp/input/prompt.md through EOF. Follow its delivery instructions and use Write to write the required output to /private/tmp/output/review.md."
-	const reviewTrailer = "\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\nWrite the complete Markdown review report to /private/tmp/output/review.md with Write. After the output, the final non-empty line must be exactly:\n"
-	if profile.BuildInitialInput(review) != reviewInput || string(profile.BuildPromptTrailer(review)) != reviewTrailer+marker+"\n" {
-		t.Fatal("structured delivery changed the review instructions")
+	input := profile.BuildInitialInput(review)
+	if !strings.Contains(input, review.PromptPath) || !strings.Contains(input, review.OutputPath) ||
+		!strings.Contains(input, "same Write call") || !strings.Contains(input, "last line of the output file") || strings.Contains(input, nonce) {
+		t.Fatal("initial review instruction must put the report and verification line in the same staged file")
+	}
+	trailer := string(profile.BuildPromptTrailer(review))
+	if !strings.Contains(trailer, "one Write call") || !strings.Contains(trailer, "final line of the same file") ||
+		!strings.Contains(trailer, review.OutputPath) || !strings.HasSuffix(trailer, "\n"+marker+"\n") || strings.Count(trailer, marker) != 1 {
+		t.Fatal("review trailer must put the exact verification line after the Markdown report in the staged file")
 	}
 	for _, tc := range []struct {
 		name, filename string
@@ -493,7 +498,7 @@ func TestZCodeTerminalDriverOffline(t *testing.T) {
 					t.Fatal("wrong executable, tool policy, or runtime arguments")
 				}
 				env := namespaceEnvironmentMap(t, proc.Environment())
-				for key, want := range map[string]string{"PATH": "/usr/bin:/bin", "TERM": "xterm-256color", "LANG": "en_US.UTF-8", "TMPDIR": zcodeRuntimeTempDirectory, "TMP": zcodeRuntimeTempDirectory, "TEMP": zcodeRuntimeTempDirectory} {
+				for key, want := range map[string]string{"PATH": "/usr/bin:/bin", "TERM": "xterm-256color", "LANG": "en_US.UTF-8", "TMPDIR": zcodeRuntimeTempPath(lease.generation), "TMP": zcodeRuntimeTempPath(lease.generation), "TEMP": zcodeRuntimeTempPath(lease.generation)} {
 					if env[key] != want {
 						t.Fatalf("wrong pane environment for %s", key)
 					}
@@ -501,7 +506,7 @@ func TestZCodeTerminalDriverOffline(t *testing.T) {
 				boundary, ok := proc.LiveReadOnlyBoundary()
 				runtimeTemp, hasTemp := boundary.RuntimeTempRoot()
 				if !ok || !hasTemp || !boundary.PaneTTY() || boundary.BashGate() != (tc.scope == domain.LiveSourceStage) ||
-					runtimeTemp.String() != lease.zcodeRuntimeTemp {
+					lease.zcodeRuntimeTempOwner == nil || runtimeTemp.String() != lease.zcodeRuntimeTempOwner.root {
 					t.Fatal("incorrect pane Seatbelt authority")
 				}
 				authPath := fixtureFlagValue(args, "--auth-file")

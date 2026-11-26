@@ -628,6 +628,40 @@ func TestPaneExecChild(t *testing.T) {
 		fmt.Fprintln(os.Stdout, "PANE_NAMESPACE_OK")
 		os.Exit(0)
 
+	case "managed-runtime-temp":
+		if len(args) != 6 {
+			os.Exit(2)
+		}
+		if err := os.WriteFile(args[2], []byte("owned runtime write"), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, "owned runtime write failed")
+			os.Exit(73)
+		}
+		if _, err := os.ReadFile(args[3]); !errors.Is(err, unix.EPERM) {
+			fmt.Fprintf(os.Stderr, "peer runtime read was not denied: %v\n", err)
+			os.Exit(74)
+		}
+		if err := os.WriteFile(args[3], []byte("peer change"), 0o600); !errors.Is(err, unix.EPERM) {
+			fmt.Fprintf(os.Stderr, "peer runtime write was not denied: %v\n", err)
+			os.Exit(75)
+		}
+		if conn, err := net.DialTimeout("unix", args[4], time.Second); !errors.Is(err, unix.EPERM) {
+			if conn != nil {
+				_ = conn.Close()
+			}
+			fmt.Fprintf(os.Stderr, "peer runtime socket was not denied: %v\n", err)
+			os.Exit(76)
+		}
+		if args[5] != "-" {
+			conn, err := net.DialTimeout("unix", args[5], time.Second)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "owned runtime socket unavailable")
+				os.Exit(77)
+			}
+			_ = conn.Close()
+		}
+		fmt.Fprintln(os.Stdout, "PANE_RUNTIME_TEMP_OK")
+		os.Exit(0)
+
 	case "deny-files-and-sockets":
 		// Args: comma-separated denied file paths, comma-separated denied socket paths
 		if len(args) != 4 {
@@ -1836,6 +1870,62 @@ func TestPaneExecManagedNamespaceIsolation(t *testing.T) {
 			out, err, _ := runSpecOnSyntheticPTY(t, spec.Argv(), []string{"HC_TERMINAL_ID=namespace-fixture"}, nil)
 			if err != nil || !bytes.Contains(out, []byte("PANE_NAMESPACE_OK")) {
 				t.Fatalf("namespace boundary: %v, %s", err, out)
+			}
+		})
+	}
+}
+
+func TestPaneExecManagedRuntimeTempIsolation(t *testing.T) {
+	f := newPaneTestFixture(t)
+	bin := canonicalTestExecutable(t)
+	parent := filepath.Join(f.base, "short-temp")
+	own := filepath.Join(parent, "one")
+	peer := filepath.Join(parent, "two")
+	for _, dir := range []string{own, peer} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	peerFile := filepath.Join(peer, "private")
+	if err := os.WriteFile(peerFile, []byte("peer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(peer, "local.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	ownSocket := filepath.Join(own, "local.sock")
+	ownListener, err := net.Listen("unix", ownSocket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ownListener.Close()
+	for _, tc := range []struct {
+		name        string
+		runtimeTemp string
+		writeRoot   string
+		socketPath  string
+	}{
+		{"zcode", own, own, ownSocket},
+		{"grok_peer", "", f.writable, "-"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := f
+			fixture.runtimeTemp = tc.runtimeTemp
+			fixture.paneControlDir = filepath.Join(f.controlPlaneDir, tc.name)
+			if err := os.Mkdir(fixture.paneControlDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			spec := fixture.buildLaunch(t, bin,
+				[]string{"-test.run=^TestPaneExecChild$", "--", "paneexec", "managed-runtime-temp", filepath.Join(tc.writeRoot, "proof"), peerFile, socket, tc.socketPath}, nil,
+				func(b ports.LiveReadOnlyBoundary) (ports.LiveReadOnlyBoundary, error) {
+					return ports.NewLiveReadOnlyBoundaryWithManagedRuntimeTemps(b, mustRoot(t, parent))
+				})
+			out, err, _ := runSpecOnSyntheticPTY(t, spec.Argv(), []string{"HC_TERMINAL_ID=runtime-temp-fixture"}, nil)
+			if err != nil || !bytes.Contains(out, []byte("PANE_RUNTIME_TEMP_OK")) {
+				t.Fatalf("managed runtime temp boundary: %v, %s", err, out)
 			}
 		})
 	}

@@ -13,9 +13,10 @@ explain why durable choices were made.
   same-target reruns are combined into a new immutable authority.
 - [Review await design](review-await.md) records the accepted session-local MCP
   review lifecycle and its rejected alternatives.
-- [ZCode app-server transport](zcode-app-server-transport.md) records why ZCode
-  review and qualification speak the app-server protocol and the wire shapes
-  its live spike pinned.
+- [ZCode herdr-core terminal transport](zcode-herdr-core-transport.md) records
+  EPIC-019's migration of ZCode to Mulgae's shared isolated terminal runtime.
+  `herdr-zcode` owns Desktop access. Workspace reviews run shell-free, and
+  omitted model and effort settings inherit the corresponding session settings.
 - [herdr-core terminal transport](herdr-core-terminal-transport.md) records
   EPIC-017's reusable isolated `herdr-core` terminal runtime, trusted pane
   trampoline (`__mulgae_paneexec_v1`), control-plane and exact-TTY Seatbelt
@@ -23,6 +24,11 @@ explain why durable choices were made.
   `1.0.89+` migration and live certification.
 - [Coordinate reviews in the shared native execution path](haepari-review-coordination.md)
   records EPIC-016's native boundary, ownership and advisory limits.
+
+## Superseded
+
+- [ZCode app-server transport](zcode-app-server-transport.md) preserves the
+  protocol and wire shapes verified for the previous ZCode adapter.
 
 ## Deprecated / Retired
 
@@ -46,12 +52,3 @@ explain why durable choices were made.
   and verified reads, preserving the earlier rationale as historical context.
   Design acceptance does not mean the new capabilities are implemented; the
   roadmap owns delivery status.
-- [ZCode herdr-core terminal transport](zcode-herdr-core-transport.md) records
-  EPIC-019's fully decoupled design migrating `FamilyZcode` onto Mulgae's shared
-  isolated `herdr-core` terminal runtime via `herdr-zcode` (`--runtime core`,
-  `prepare-isolated`, `--catalog-file`, `--check-desktop --json`), retiring
-  Mulgae's Go-side ZCode Desktop internal coupling, defaulting new projects to
-  `GLM-5.4` / `max` while preserving ZCode's current model on Config v5
-  omission, and unifying workspace shell-free isolation (`DF-030`). Design
-  acceptance does not mean the new transport is implemented; the roadmap owns
-  delivery status.

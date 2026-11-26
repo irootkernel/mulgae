@@ -468,6 +468,58 @@ func TestProviderRuntimeOutputReceivedRequiresNonEmptyStdout(t *testing.T) {
 	}
 }
 
+func TestProviderRuntimeStagedRejectionRecordedWithoutStdout(t *testing.T) {
+	for _, test := range []struct {
+		reason ports.StagedOutputRejection
+		cause  domain.RuntimeDiagnosticCause
+	}{
+		{ports.StagedOutputMissing, domain.DiagnosticCauseProviderOutputFileMissing},
+		{ports.StagedOutputEmpty, domain.DiagnosticCauseProviderOutputFileInvalid},
+		{ports.StagedOutputCompletionMarkerMissing, domain.DiagnosticCauseProviderOutputFileInvalid},
+		{ports.StagedOutputCompletionMarkerMismatch, domain.DiagnosticCauseProviderOutputFileInvalid},
+	} {
+		t.Run(string(test.reason), func(t *testing.T) {
+			runtime, job, _ := providerRuntimeExplicitFixture(t, nil)
+			packetBytes := []byte("fixture packet")
+			packet, err := ports.NewProviderPacket(packetBytes, providerRuntimePacketDigest(packetBytes))
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation, err := ports.NewProviderInvocationWithPacket(
+				job.Role(), job.Route().ProviderInstance(), job.AttemptID(), ports.ProviderInvocationInitial, packet,
+				"i_019f5a09-5eec-7001-8001-000000000014", "019f5a09-5eec-7001-8001-000000000015",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			process := providerRuntimeProcessObservation(t, invocation, nil, nil)
+			observation, err := ports.NewFailedProviderExecutionObservationWithCause(
+				ports.ProviderExecutionStatusArtifactFailure, invocation, process, "invalid_provider_output", test.cause, "",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := observation.WithStagedOutputRejection("unsafe_value"); err == nil {
+				t.Fatal("accepted an unknown rejection identifier")
+			}
+			observation, err = observation.WithStagedOutputRejection(test.reason)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sink := &providerRuntimeEventSink{sequence: 1}
+			runtime.diagnostics = providerRuntimeDiagnosticResolver{runID: job.RunID(), sink: sink}
+			if err := runtime.emitObservationDiagnostics(t.Context(), job, observation); err != nil {
+				t.Fatal(err)
+			}
+			entry := sink.input
+			if entry.Event != domain.DiagnosticProcessExited || entry.Cause != test.cause ||
+				entry.Failure != string(test.reason) || entry.AttemptID != job.AttemptID() || entry.Stream != "" {
+				t.Fatalf("staged failure did not reach the process diagnostic: %+v", entry)
+			}
+		})
+	}
+}
+
 func TestDiagnosticPersistenceSecurityRejectionPreservesSecurityCondition(t *testing.T) {
 	drop, err := ports.NewDropMetadata("stdout", "secret_detected", 1, []string{"provider:stdout"})
 	if err != nil {

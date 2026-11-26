@@ -396,11 +396,11 @@ func (lease *stagedPromptLease) Cleanup() error {
 // verifies that non-whitespace content remains before it.
 func verifyAndStripCompletionNonce(raw []byte, nonce string) ([]byte, error) {
 	if nonce == "" {
-		return nil, stagedOutputFileInvalid("missing expected completion nonce")
+		return nil, stagedOutputFileInvalid(ports.StagedOutputCompletionMarkerUnbound, "missing expected completion nonce")
 	}
 	trimmed := bytes.TrimRight(raw, " \t\r\n")
 	if len(trimmed) == 0 {
-		return nil, stagedOutputFileInvalid("staged output is empty")
+		return nil, stagedOutputFileInvalid(ports.StagedOutputEmpty, "staged output is empty")
 	}
 	expected := []byte(terminalCompletionNoncePrefix + nonce)
 	lastNL := bytes.LastIndexByte(trimmed, '\n')
@@ -413,14 +413,17 @@ func verifyAndStripCompletionNonce(raw []byte, nonce string) ([]byte, error) {
 		prefix = trimmed[:lastNL]
 	}
 	if !bytes.Equal(lastLine, expected) {
-		return nil, stagedOutputFileInvalid("staged output missing or mismatched completion nonce")
+		if bytes.HasPrefix(lastLine, []byte(terminalCompletionNoncePrefix)) {
+			return nil, stagedOutputFileInvalid(ports.StagedOutputCompletionMarkerMismatch, "staged output has a mismatched completion nonce")
+		}
+		return nil, stagedOutputFileInvalid(ports.StagedOutputCompletionMarkerMissing, "staged output missing final completion nonce")
 	}
 	body := bytes.TrimRight(prefix, " \t\r\n")
 	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, stagedOutputFileInvalid("staged output body is empty before completion nonce")
+		return nil, stagedOutputFileInvalid(ports.StagedOutputEmpty, "staged output body is empty before completion nonce")
 	}
 	if bytes.Contains(body, []byte(nonce)) {
-		return nil, stagedOutputFileInvalid("staged output leaked completion nonce inside report body")
+		return nil, stagedOutputFileInvalid(ports.StagedOutputCompletionMarkerInBody, "staged output leaked completion nonce inside report body")
 	}
 	result := make([]byte, len(body)+1)
 	copy(result, body)
@@ -628,6 +631,16 @@ func executeTerminalInvocation(
 	}
 	if req.Namespace != nil && req.Namespace.managedParent.Valid() {
 		boundary, err = ports.NewLiveReadOnlyBoundaryWithManagedNamespaces(boundary, req.Namespace.managedParent)
+		if err != nil {
+			return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, err)
+		}
+	}
+	if req.Namespace != nil && (req.Namespace.managedParent.Valid() || profile.Family() == FamilyZcode && preparation.runtimeTemp.Valid()) {
+		parent, rootErr := ports.NewAnchoredRoot(zcodeRuntimeTempParent)
+		if rootErr != nil {
+			return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, rootErr)
+		}
+		boundary, err = ports.NewLiveReadOnlyBoundaryWithManagedRuntimeTemps(boundary, parent)
 		if err != nil {
 			return terminalDriverResult{}, providerRuntimeFailure(domain.DiagnosticCauseWorkspaceRevalidationFailed, err)
 		}
@@ -927,7 +940,7 @@ func executeTerminalInvocation(
 				"invalid_provider_output",
 				domain.DiagnosticCauseProviderOutputFileInvalid,
 				"",
-				fmt.Errorf("recompute stripped staged output receipt: %w", receiptErr),
+				stagedOutputFileInvalid(ports.StagedOutputInvalidReceipt, "recompute stripped staged output receipt: %w", receiptErr),
 			)
 		}
 		stagedReceipt = strippedReceipt

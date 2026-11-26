@@ -1,8 +1,6 @@
 # ZCode herdr-core terminal transport
 
-Status: Accepted design for planned implementation (promoted to `Accepted`,
-superseding [ZCode app-server transport](zcode-app-server-transport.md), upon
-live certification in `TASK-098`).
+Status: Accepted. Supersedes [ZCode app-server transport](zcode-app-server-transport.md).
 
 Roadmap: [EPIC-019](../roadmap/README.md#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode)
 
@@ -71,9 +69,12 @@ Mulgae from ZCode Desktop internals**:
      emitted `0600` `auth.json` and `0400` `catalog.json` via `O_NOFOLLOW`,
      checks the secret-free JSON receipt and catalog SHA-256, and registers
      `auth.json` for namespace drain zero-fill/unlink even on early abort.
-   - **Sandboxed pane step (inside Seatbelt)**: Runs `herdr-zcode --runtime core --non-interactive --interaction-policy block --auth-file ... --consume-auth-file --catalog-file ... --no-copy-catalog --skip-desktop-inspect --runtime-dir <namespace>/tmp`
-     with `RuntimeTempRoot` (`/tmp/mulgae-zcode`) for `endpoint.sock`, native
-     `~/.zcode` and `~/Library/Keychains` kernel-denied, and narrowed `BashGate`
+   - **Sandboxed pane step (inside Seatbelt)**: Runs `herdr-zcode --runtime core --non-interactive --interaction-policy block --auth-file ... --consume-auth-file --catalog-file ... --no-copy-catalog --skip-desktop-inspect --runtime-dir <namespace>/tmp`.
+     A separate private child at `/tmp/mulgae-zcode/<16hex>` hosts
+     `endpoint.sock` through the pane's `TMPDIR`, `TMP`, and `TEMP`.
+     Seatbelt denies peer children, and Mulgae drains the owned child at
+     teardown. Native `~/.zcode` and
+     `~/Library/Keychains` remain kernel-denied, with narrowed `BashGate`
      `process-exec` denial (`^(.*/)?(hc|herdr|herdr-core|herdr-app|herdrd)$`)
      so canonical `herdr-zcode` executes while all Herdr multiplexers stay
      denied.
@@ -94,9 +95,9 @@ Mulgae from ZCode Desktop internals**:
    additive `herdr_zcode_*` reasons fitting `doctor-result.v9`'s existing
    pattern, requiring no Config v6 or doctor schema bump.
 5. **Workspace shell-free unification and `DF-030` closure**:
-   Pending `TASK-095` confirming `artist` multimodal image reads succeed via
-   `Read` alone on workspace scope, ZCode workspace reviews drop `Bash`
-   (`Read,Grep,Glob,Write`), Git reviews run `Read,Bash,Write` strictly under
+   `TASK-095` confirmed workspace image reads via `Read` alone for `artist`.
+   ZCode workspace reviews run with `Read,Grep,Glob,Write`, Git reviews run
+   `Read,Bash,Write` strictly under
    all five `B-1` `BashGate` controls, and extraction/qualification/heartbeat
    run shell-free (`Read,Write`), unifying ZCode's confinement with Grok and
    resolving `DF-030`.
@@ -113,8 +114,8 @@ Mulgae from ZCode Desktop internals**:
   retired).
 - **Consistent security posture**: Native `~/.zcode` and Keychains remain
   kernel-denied inside Seatbelt, projected auth tokens are single-use and
-  zeroed on consume or drain, and `DF-030` closes once workspace shell-free
-  `artist` reads pass the live spike.
+  zeroed on consume or drain. Native certification in `TASK-098` covered
+  shell-free workspace and `artist` reviews and the Git `B-1` boundary.
 - **Trade-offs**:
   - **Two host wrapper dependencies**: ZCode execution requires both
     `herdr-core` (`hc`) and `herdr-zcode` installed on the host, mitigated by
@@ -129,6 +130,15 @@ Mulgae from ZCode Desktop internals**:
     provides bounded post-kill screen diagnostics rather than raw NDJSON
     protocol transcripts, while preserving complete unbounded `staged_file`
     role reports and extraction payloads.
+
+## Native certification
+
+`TASK-098` verified the existing host access restrictions and checked that the
+operator's `default` Herdr session and protected ZCode and Grok files remained
+unchanged. In separate native runs, Grok and ZCode left no execution-owned
+processes or temporary paths. Whole-home hash comparisons recorded changes
+even during intervals with no model invocation. They remain observations of
+shared host state under the revised TASK-098 criterion.
 
 ## Rejected alternatives
 

@@ -332,7 +332,7 @@ func (lease *stagedOutputLease) readStagedFileWithOptions(fileFD int, opts stage
 	case staged.Mode&0022 != 0:
 		return nil, ports.StagedOutputReceipt{}, stagedOutputViolation("staged file permits non-owner writes")
 	case staged.Size == 0:
-		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid("staged file is empty")
+		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid(ports.StagedOutputEmpty, "staged file is empty")
 	}
 
 	survivorCheck := opts.survivorCheck
@@ -395,7 +395,7 @@ func (lease *stagedOutputLease) readStagedFileWithOptions(fileFD int, opts stage
 	digest := sha256.Sum256(content)
 	receipt, err := ports.NewStagedOutputReceipt("sha256:"+hex.EncodeToString(digest[:]), int64(len(content)))
 	if err != nil {
-		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid("staged output receipt: %w", err)
+		return nil, ports.StagedOutputReceipt{}, stagedOutputFileInvalid(ports.StagedOutputInvalidReceipt, "staged output receipt: %w", err)
 	}
 	return content, receipt, nil
 }
@@ -472,13 +472,13 @@ func readStagedOutputBytes(fileFD int, content []byte) error {
 // untrusted staged Markdown body before any consumer observes it.
 func validateStagedOutputContent(content []byte) error {
 	if bytes.IndexByte(content, 0) >= 0 {
-		return stagedOutputFileInvalid("staged file contains a NUL byte")
+		return stagedOutputFileInvalid(ports.StagedOutputInvalidText, "staged file contains a NUL byte")
 	}
 	if !utf8.Valid(content) {
-		return stagedOutputFileInvalid("staged file is not valid UTF-8")
+		return stagedOutputFileInvalid(ports.StagedOutputInvalidText, "staged file is not valid UTF-8")
 	}
 	if len(bytes.TrimSpace(content)) == 0 {
-		return stagedOutputFileInvalid("staged file contains only whitespace")
+		return stagedOutputFileInvalid(ports.StagedOutputEmpty, "staged file contains only whitespace")
 	}
 	return nil
 }
@@ -634,17 +634,19 @@ func stagedOutputViolation(format string, args ...any) error {
 // stagedOutputFileMissing reports the ordinary operational outcome of a
 // provider that staged no file at all.
 func stagedOutputFileMissing(format string, args ...any) error {
-	return newProviderOutputFailure(
-		domain.DiagnosticCauseProviderOutputFileMissing, fmt.Errorf("provider staged output: "+format, args...),
-	)
+	return &providerOutputFailure{
+		cause: domain.DiagnosticCauseProviderOutputFileMissing, stagedRejection: ports.StagedOutputMissing,
+		err: fmt.Errorf("provider staged output: "+format, args...),
+	}
 }
 
 // stagedOutputFileInvalid reports a staged file that exists inside the
 // authorized boundary but cannot be a role report body.
-func stagedOutputFileInvalid(format string, args ...any) error {
-	return newProviderOutputFailure(
-		domain.DiagnosticCauseProviderOutputFileInvalid, fmt.Errorf("provider staged output: "+format, args...),
-	)
+func stagedOutputFileInvalid(reason ports.StagedOutputRejection, format string, args ...any) error {
+	return &providerOutputFailure{
+		cause: domain.DiagnosticCauseProviderOutputFileInvalid, stagedRejection: reason,
+		err: fmt.Errorf("provider staged output: "+format, args...),
+	}
 }
 
 // stagedOutputCleanupFailure reports staging that could not be proven removed.

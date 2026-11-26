@@ -150,6 +150,10 @@ selection.
 Once a Config v5 file exists, omitting or removing a field preserves the
 current ZCode session setting for that dimension. Mulgae resolves
 the exact companion package and passes the app bundle as an opaque path.
+The standard `/Applications/ZCode.app` path accepts macOS's root-owned
+`admin`-group `/Applications` directory in mode `0775`. Mulgae checks ownership
+and write permissions on the bundle itself and on each component of a custom
+bundle path.
 `herdr-zcode prepare-isolated` supplies the account and catalog for the current
 Z.AI Individual Coding Plan. Mulgae admits that projection against the
 qualified app release, account identity, and catalog revision and digest.
@@ -647,7 +651,9 @@ managed `herdr-core` terminal profile. It launches `herdr-zcode` with a
 descriptor-verified prompt, explicit tool policy and blocked interaction.
 OSC 7501 reports startup and turn completion. Mulgae reads the declared
 staged output only after process-group absence and validates its completion
-nonce. Screen captures remain diagnostic evidence.
+nonce. The primary review prompt directs ZCode to write the Markdown report
+and the final verification line together in the same staged file. Screen
+captures remain diagnostic evidence.
 
 Grok review, extraction, qualification, and heartbeat invocations run through
 Mulgae's isolated per-run `herdr-core` terminal runtime (`ProviderPacketChannelTerminal`,
@@ -738,6 +744,23 @@ provider streams, provider session or turn identifiers, or the runtime JSONL
 through this degraded projection. A terminal protocol or
 observation-invariant event may contribute the bounded `diagnostic_summary`
 described above.
+
+When a staged provider file is rejected, the process-end event in local
+`mulgae-runtime.jsonl` records a `failure` token alongside `cause`. This is
+`provider_process_exited` after a normal exit and `provider_process_terminated`
+after signal termination. The event carries no report text, marker value,
+or native pathname. Public status keeps its existing reason codes.
+
+| Failure | Meaning |
+|---|---|
+| `staged_output_missing` | The staged file was absent. |
+| `staged_output_empty` | The output was empty or whitespace-only, or its body was empty before the final marker. |
+| `staged_output_invalid_text` | The staged text contained NUL or invalid UTF-8. |
+| `staged_output_completion_marker_missing` | The final completion marker was absent. |
+| `staged_output_completion_marker_mismatch` | The final completion marker carried the wrong value. |
+| `staged_output_completion_marker_in_body` | The completion marker appeared inside the report body. |
+| `staged_output_completion_marker_unbound` | The invocation lacked an expected completion marker. |
+| `staged_output_invalid_receipt` | The receipt for the report body could not be constructed. |
 
 Current diagnostic-only status reports `recovery_action: none`. Runtime
 diagnostics and provider streams are not validated publication material, so an
@@ -1408,9 +1431,11 @@ at most one final across interruption/restart. Missing or damaged declared
 support fails closed; an intact old artifact without support remains unavailable.
 
 Provider wire v2 names output v3 and carries an optional
-`mulgae-provider-requirements.v1` section. Validation separates unbounded
-assessment prose from bounded finding structure, verifies claims on the selected
-source side while its lease is open, and retains verifier-owned content.
+`mulgae-provider-requirements.v1` section. The provider prompt asks primary
+Markdown reports to record text citations as inline JSON evidence items so
+extraction can preserve the selected source's line endings. Validation separates
+unbounded assessment prose from bounded finding structure, verifies claims on
+the selected source side while its lease is open, and retains verifier-owned content.
 Complete accepted sections form the trusted in-memory normalized v3 value and
 support unbounded serialization. Partial sections preserve their independent
 report/finding/assessment axes without claiming a complete normalized envelope.

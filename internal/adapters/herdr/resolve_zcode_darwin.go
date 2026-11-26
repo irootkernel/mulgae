@@ -24,14 +24,19 @@ import (
 
 const EnvHerdrZCodeBin = "MULGAE_HERDR_ZCODE_BIN"
 
-const zcodeLauncherName = "herdr-zcode"
+const (
+	zcodeLauncherName     = "herdr-zcode"
+	zcodeDefaultAppBundle = "/Applications/ZCode.app"
+	darwinApplications    = "/Applications"
+	darwinAdminGroupID    = 80
+)
 
 // VerifyZCodeAppBundle checks the directory supplied to the trusted companion
 // without resolving or opening any Desktop component inside the bundle.
 func VerifyZCodeAppBundle(override string, excludedRoots ...string) error {
 	bundle := override
 	if bundle == "" {
-		bundle = "/Applications/ZCode.app"
+		bundle = zcodeDefaultAppBundle
 	}
 	if !validCanonicalAbsolutePath(bundle) {
 		return ErrUnsafeExecutable
@@ -43,11 +48,28 @@ func VerifyZCodeAppBundle(override string, excludedRoots ...string) error {
 	if err != nil {
 		return ErrUnsafeExecutable
 	}
-	path, err := resolveSafeDirectoryChain(bundle, uint32(unix.Geteuid()), excluded)
-	if err != nil || path != bundle {
+	euid := uint32(unix.Geteuid())
+	path, err := resolveSafeDirectoryChain(bundle, euid, excluded)
+	if err == nil && path == bundle {
+		return nil
+	}
+	// macOS permits its built-in admin group to manage /Applications. Admit
+	// that system directory only for the exact standard ZCode bundle. The
+	// bundle itself still requires a real, owner-controlled directory.
+	if bundle != zcodeDefaultAppBundle || pathWithinAnyRoot(darwinApplications, excluded) ||
+		pathWithinAnyRoot(bundle, excluded) || validateSafeDirectoryPath("/", euid) != nil {
+		return ErrUnsafeExecutable
+	}
+	var applications unix.Stat_t
+	if unix.Lstat(darwinApplications, &applications) != nil || !isStandardAdminApplicationsDirectory(applications) ||
+		validateSafeDirectoryPath(bundle, euid) != nil {
 		return ErrUnsafeExecutable
 	}
 	return nil
+}
+
+func isStandardAdminApplicationsDirectory(st unix.Stat_t) bool {
+	return st.Uid == 0 && st.Gid == darwinAdminGroupID && st.Mode == unix.S_IFDIR|0o775
 }
 
 // ErrZCodeCompanionTeardown reports that the launcher did not establish that
@@ -289,7 +311,7 @@ func ObserveZCodeCompanion(ctx context.Context, pkg ZCodePackage, appBundle stri
 	}
 	expectedBundle := appBundle
 	if expectedBundle == "" {
-		expectedBundle = "/Applications/ZCode.app"
+		expectedBundle = zcodeDefaultAppBundle
 	}
 	if desktop.AppVersion == "" || desktop.MinimumVersion == "" || desktop.AppBundle != expectedBundle ||
 		!(desktop.Compatible && !incompatibleExit && desktop.Reason == "" ||

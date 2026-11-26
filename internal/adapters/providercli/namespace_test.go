@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -270,7 +271,7 @@ func TestNamespaceTempRedirectFollowsDeclaredFamilyNotInstanceName(t *testing.T)
 		t.Fatal(err)
 	}
 	// The redirect's trigger is the declared family: a ZCode family instance
-	// gets the shared short runtime temp directory even when its instance
+	// gets its own short runtime temp directory even when its instance
 	// name carries no zcode prefix.
 	zcode, err := factory.AcquireProviderNamespace(context.Background(), "unprefixed_logic", FamilyZcode)
 	if err != nil {
@@ -278,8 +279,8 @@ func TestNamespaceTempRedirectFollowsDeclaredFamilyNotInstanceName(t *testing.T)
 	}
 	zcodeEnvironment := namespaceEnvironmentMap(t, zcode.Environment())
 	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
-		if zcodeEnvironment[name] != zcodeRuntimeTempDirectory {
-			t.Fatalf("%s of a zcode-family namespace = %q, want %q", name, zcodeEnvironment[name], zcodeRuntimeTempDirectory)
+		if want := zcodeRuntimeTempPath(zcode.Generation()); zcodeEnvironment[name] != want {
+			t.Fatalf("%s of a zcode-family namespace = %q, want %q", name, zcodeEnvironment[name], want)
 		}
 	}
 	// An instance whose name merely looks like ZCode keeps the
@@ -290,7 +291,7 @@ func TestNamespaceTempRedirectFollowsDeclaredFamilyNotInstanceName(t *testing.T)
 	}
 	lookalikeEnvironment := namespaceEnvironmentMap(t, lookalike.Environment())
 	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
-		if lookalikeEnvironment[name] == zcodeRuntimeTempDirectory {
+		if strings.HasPrefix(lookalikeEnvironment[name], zcodeRuntimeTempDirectory+"/") {
 			t.Fatalf("%s of a grok-family namespace uses the zcode runtime temp directory", name)
 		}
 		if lookalikeEnvironment[name] == "" {
@@ -302,6 +303,172 @@ func TestNamespaceTempRedirectFollowsDeclaredFamilyNotInstanceName(t *testing.T)
 	}
 	if err := lookalike.ValidateForSpawn(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestZCodeShortRuntimeTempLeaseDrainsOnlyItsOwnChild(t *testing.T) {
+	ctx := context.Background()
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquire := func(name string) (*namespaceLease, ports.AnchoredRoot) {
+		t.Helper()
+		bound, err := factory.AcquireProviderNamespace(ctx, name, FamilyZcode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if _, err := bound.DrainTerminal(ctx); err != nil {
+				t.Error(err)
+			}
+		})
+		lease := bound.(*namespaceLease)
+		lease.terminalMu.Lock()
+		root, err := lease.ensureZCodeRuntimeTemp()
+		lease.terminalMu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lease, root
+	}
+	first, root := acquire("zcode-logic")
+	_, peer := acquire("zcode-security")
+	if root == peer || filepath.Dir(root.String()) != zcodeRuntimeTempParent || filepath.Dir(peer.String()) != zcodeRuntimeTempParent {
+		t.Fatal("a ZCode lease did not get a distinct short runtime child")
+	}
+	// The installed producer used socket basenames up to 46 bytes in an
+	// actual review. Bind that length using the physical Darwin path.
+	socket := filepath.Join(root.String(), strings.Repeat("s", 46))
+	if len(socket)+1 > len(unix.RawSockaddrUnix{}.Path) {
+		t.Fatal("ZCode runtime socket path exceeds Darwin's sockaddr length")
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.SetUnlinkOnClose(false)
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	peerFile := filepath.Join(peer.String(), "peer-owned")
+	if err := os.WriteFile(peerFile, []byte("peer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A substituted name cannot authorize deletion of the sibling it points to.
+	func() {
+		renamed := root.String() + ".moved"
+		if err := os.Rename(root.String(), renamed); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Rename(renamed, root.String()); err != nil {
+				t.Error(err)
+			}
+		}()
+		if err := os.Symlink(peer.String(), root.String()); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.Remove(root.String()); err != nil {
+				t.Error(err)
+			}
+		}()
+		if _, err := first.liveRuntimeTempRoot(); err == nil {
+			t.Fatal("substituted runtime child passed pre-spawn admission")
+		}
+		if receipt, err := first.DrainTerminal(ctx); err == nil || receipt.Valid() {
+			t.Fatal("substituted runtime child produced a terminal drain receipt")
+		}
+	}()
+	if _, err := first.DrainTerminal(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(root.String()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("owned temp child survived drain: %v", err)
+	}
+	if body, err := os.ReadFile(peerFile); err != nil || string(body) != "peer" {
+		t.Fatalf("drain changed the peer lease: %v", err)
+	}
+}
+
+func TestZCodeShortRuntimeTempOpenFailureRollsBackIdentifiedChild(t *testing.T) {
+	ctx := context.Background()
+	factory, err := NewNamespaceFactory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := factory.AcquireProviderNamespace(ctx, "zcode-logic", FamilyZcode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := bound.(*namespaceLease)
+	defer func() { _, _ = lease.DrainTerminal(ctx) }()
+	child := filepath.Base(zcodeRuntimeTempPath(lease.generation))
+	open := openNamespaceRootDescriptor
+	openNamespaceRootDescriptor = func(fd int, name string, flags int, mode uint32) (int, error) {
+		if name == child {
+			return -1, unix.EIO
+		}
+		return open(fd, name, flags, mode)
+	}
+	func() {
+		defer func() { openNamespaceRootDescriptor = open }()
+		if _, err := lease.ensureZCodeRuntimeTemp(); !errors.Is(err, unix.EIO) {
+			t.Fatalf("short child open failure = %v", err)
+		}
+	}()
+	owner := lease.zcodeRuntimeTempOwner
+	if owner == nil || owner.cleanupInode == 0 || owner.rootDirectory != nil {
+		t.Fatal("short child identity was lost after its open failed")
+	}
+	if _, err := lease.DrainTerminal(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(owner.root); !errors.Is(err, os.ErrNotExist) || owner.parentDirectory != nil || owner.rootDirectory != nil {
+		t.Fatalf("identified child rollback retained its entry or descriptors: %v", err)
+	}
+}
+
+func TestZCodeShortRuntimeTempUnverifiedChildClosesWithoutUnlinking(t *testing.T) {
+	ctx := context.Background()
+	fixture := t.TempDir()
+	entry := filepath.Join(fixture, "replacement")
+	if err := os.Mkdir(entry, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(entry, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"missing", "replacement"} {
+		t.Run(name, func(t *testing.T) {
+			factory, err := NewNamespaceFactory(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			bound, err := factory.AcquireProviderNamespace(ctx, "zcode-logic", FamilyZcode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lease := bound.(*namespaceLease)
+			parent, err := os.Open(fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer parent.Close()
+			if err := lease.retainZCodeRuntimeTempChild(parent, name); err == nil || lease.zcodeRuntimeTempOwner != nil {
+				t.Fatal("unverified child was admitted")
+			}
+			if _, err := parent.Stat(); !errors.Is(err, os.ErrClosed) {
+				t.Fatalf("unverified child's parent descriptor retained: %v", err)
+			}
+			if receipt, err := lease.DrainTerminal(ctx); err == nil || receipt.Valid() || lease.rootDirectory != nil || lease.parentDirectory != nil {
+				t.Fatal("unknown short child must withhold terminal receipt and close owned namespace descriptors")
+			}
+			if info, err := os.Stat(entry); err != nil || info.Mode().Perm() != 0o755 {
+				t.Fatalf("drain changed the untrusted replacement entry: %v", err)
+			}
+		})
 	}
 }
 

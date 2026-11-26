@@ -15,7 +15,58 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestStandardAdminApplicationsDirectoryTrust(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		uid, gid uint32
+		mode     uint16
+		want     bool
+	}{
+		{name: "Darwin root admin", gid: 80, mode: unix.S_IFDIR | 0o775, want: true},
+		{name: "untrusted owner", uid: 501, gid: 80, mode: unix.S_IFDIR | 0o775},
+		{name: "another group", gid: 20, mode: unix.S_IFDIR | 0o775},
+		{name: "world writable", gid: 80, mode: unix.S_IFDIR | 0o777},
+		{name: "setgid", gid: 80, mode: unix.S_IFDIR | 0o2775},
+		{name: "symlink", gid: 80, mode: unix.S_IFLNK | 0o775},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isStandardAdminApplicationsDirectory(unix.Stat_t{Uid: test.uid, Gid: test.gid, Mode: test.mode}); got != test.want {
+				t.Fatalf("standard application directory eligibility = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestVerifyZCodeAppBundleKeepsCustomPathRestrictions(t *testing.T) {
+	root := canonicalTempDir(t)
+	bundle := filepath.Join(root, "Custom.app")
+	if err := os.Mkdir(bundle, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyZCodeAppBundle(bundle); err != nil {
+		t.Fatalf("admit safe custom bundle: %v", err)
+	}
+	if err := VerifyZCodeAppBundle(bundle, root); !errors.Is(err, ErrUnsafeExecutable) {
+		t.Fatalf("excluded custom bundle = %v", err)
+	}
+	alias := filepath.Join(root, "Alias.app")
+	if err := os.Symlink(bundle, alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyZCodeAppBundle(alias); !errors.Is(err, ErrUnsafeExecutable) {
+		t.Fatalf("symlink bundle = %v", err)
+	}
+	if err := os.Chmod(bundle, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyZCodeAppBundle(bundle); !errors.Is(err, ErrUnsafeExecutable) {
+		t.Fatalf("group-writable custom bundle = %v", err)
+	}
+}
 
 func makeZCodePackageFixture(t *testing.T, root, script string) string {
 	t.Helper()

@@ -7,7 +7,12 @@ This file records concise shipped outcomes and the planned next stable release.
 ### Changed
 
 - Run ZCode reviews, structured extraction, qualification, and heartbeat through
-  an isolated `herdr-core` terminal with the `herdr-zcode` companion.
+  an isolated `herdr-core` terminal with the `herdr-zcode` companion. Drain each
+  ZCode namespace's private socket directory after process teardown.
+- Admit the standard ZCode app bundle under macOS's root-owned `admin`-group
+  `/Applications` directory in mode `0775`.
+- Distinguish missing staged provider output, empty reports, and completion
+  marker failures in local runtime diagnostics.
 - Default new ZCode projects to `account:zai-individual-coding-plan/GLM-5.4`
   and `max`, with independent overrides and source reporting in command-result
   v26. Omitted fields in existing Config v5 files retain ZCode session settings.
@@ -30,6 +35,10 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Fixed
 
+- Tell ZCode to write the Markdown role report and its completion marker to
+  the same staged file.
+- Preserve source line endings when transcribing text citations from role
+  reports into requirements assessments.
 - Restore ZCode 3.18.2 reviews for accounts protected by macOS Keychain.
 - Accept optional Grok CLI release-channel version tags (such as `[stable]` or `[beta]`) and register the synthetic `grok-logic` namespace so `mulgae heartbeat --provider grok` works even when no review role uses Grok.
 - Restore timeout publication consistency so provider timeouts project `AttemptTimedOut` paired with `FailureTimeout` (preserving partial-timeout publication of peer reports and requirements), enclosing run deadlines during optional extraction complete the role as `AttemptSucceeded` with its accepted report intact and project `RunCompleted` when all roles succeeded, and never-started roles cancel cleanly instead of failing with illegal state transitions.

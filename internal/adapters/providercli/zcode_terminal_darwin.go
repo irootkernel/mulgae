@@ -85,9 +85,6 @@ func (zcodeTerminalProfile) PrepareDisposableHomes(terminalProfileInvocation) ([
 		{"PATH", "/usr/bin:/bin"},
 		{"TERM", "xterm-256color"},
 		{"LANG", "en_US.UTF-8"},
-		{"TMPDIR", zcodeRuntimeTempDirectory},
-		{"TMP", zcodeRuntimeTempDirectory},
-		{"TEMP", zcodeRuntimeTempDirectory},
 	}
 	env := make([]ports.EnvironmentVariable, 0, len(pairs))
 	for _, pair := range pairs {
@@ -104,7 +101,7 @@ func (zcodeTerminalProfile) BuildInitialInput(inv terminalProfileInvocation) str
 	input := fmt.Sprintf("Use Read to read the entire prompt file at %s through EOF. Follow its delivery instructions and use Write to write the required output to %s.",
 		inv.PromptPath, inv.OutputPath)
 	if inv.Purpose == terminalPurposeReview {
-		return input
+		return input + " In the same Write call, save the Markdown report and append the exact verification line from the prompt file as the last line of the output file, outside Markdown formatting."
 	}
 	return input + " JSON-only instructions apply to the body. In the same Write call, include the body and copy the exact verification line from the prompt file onto a separate final line outside the body."
 }
@@ -117,7 +114,9 @@ func (zcodeTerminalProfile) BuildPromptTrailer(inv terminalProfileInvocation) []
 			"After a newline, copy the verification line below verbatim as the final line outside the JSON. Mulgae removes that line before parsing the body.\n"+
 			"%s%s\n", inv.OutputPath, terminalCompletionNoncePrefix, inv.CompletionNonce)
 	}
-	return fmt.Appendf(nil, "\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\nWrite the complete Markdown review report to %s with Write. After the output, the final non-empty line must be exactly:\n%s%s\n",
+	return fmt.Appendf(nil, "\n\n---\nMULGAE TERMINAL DELIVERY CONTRACT:\n"+
+		"Use one Write call to save the complete Markdown report and the verification line to %s. After the report, copy the verification line below verbatim as the final line of the same file, outside Markdown formatting. Mulgae removes that line before parsing the report.\n"+
+		"%s%s\n",
 		inv.OutputPath, terminalCompletionNoncePrefix, inv.CompletionNonce)
 }
 
@@ -206,15 +205,14 @@ func (profile zcodeTerminalProfile) PrepareHost(ctx context.Context, inv *termin
 			return terminalHostPreparation{}, err
 		}
 	}
-	runtimeTemp, err := lease.liveRuntimeTempRoot()
-	if err != nil {
-		return terminalHostPreparation{}, zcodePreparationSecurityError("runtime directory identity drift")
-	}
-
 	lease.terminalMu.Lock()
 	defer lease.terminalMu.Unlock()
 	if lease.cleanupStage != namespaceCleanupInitial || lease.drained {
 		return terminalHostPreparation{}, zcodePreparationSecurityError("namespace is closing")
+	}
+	runtimeTemp, err := lease.ensureZCodeRuntimeTemp()
+	if err != nil {
+		return terminalHostPreparation{}, zcodePreparationSecurityError("runtime directory identity or preparation failed")
 	}
 
 	dir, err := retainZCodeProjectionDirectory(lease)

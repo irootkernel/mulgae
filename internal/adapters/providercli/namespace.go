@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -300,8 +299,7 @@ type namespaceLease struct {
 	nativeHomeInfo                os.FileInfo
 	zcodeNativeHome               string
 	zcodeNativeHomeInfo           os.FileInfo
-	zcodeRuntimeTemp              string
-	zcodeRuntimeTempInfo          os.FileInfo
+	zcodeRuntimeTempOwner         *namespaceLease
 	grokRuntimeHome               string
 	grokConfiguredRoots           []string
 	grokTerminalMu                sync.Mutex
@@ -317,6 +315,7 @@ type namespaceLease struct {
 	terminalErr                   error
 	drained                       bool
 	cleanupStage                  namespaceCleanupStage
+	exactRootName                 bool
 	cleanupDevice                 int32
 	cleanupInode                  uint64
 	afterFinalCheckHook           func(*namespaceLease)
@@ -345,9 +344,22 @@ func (lease *namespaceLease) verifyZCodeNativeHome(home ports.AnchoredRoot) erro
 }
 
 // The desktop bridge needs a short path for its Unix socket.
-const zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
+const (
+	zcodeRuntimeTempDirectory = "/tmp/mulgae-zcode"
+	zcodeRuntimeTempParent    = "/private/tmp/mulgae-zcode"
+)
 
-func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding, sharedRuntimeTemp bool) (*namespaceLease, error) {
+func zcodeRuntimeTempPath(generation string) string {
+	if len(generation) != 32 {
+		return ""
+	}
+	if _, err := hex.DecodeString(generation); err != nil || generation != strings.ToLower(generation) {
+		return ""
+	}
+	return filepath.Join(zcodeRuntimeTempDirectory, generation[:16])
+}
+
+func newNamespaceLease(instance, generation, root, rootName string, parentDirectory, rootDirectory *os.File, binding ports.ProviderNamespaceTerminalBinding, zcodeRuntimeTemp bool) (*namespaceLease, error) {
 	if !validProviderInstanceID(instance) || generation == "" || !validCanonicalAbsolute(root) || rootName == "" ||
 		parentDirectory == nil || rootDirectory == nil {
 		return nil, fmt.Errorf("provider namespace: invalid identity")
@@ -395,37 +407,17 @@ func newNamespaceLease(instance, generation, root, rootName string, parentDirect
 	if err != nil {
 		return lease, err
 	}
-	if sharedRuntimeTemp {
-		// The ZCode Desktop bridge binds a per-process Unix socket under
-		// os.tmpdir(), and the namespace temp path exceeds the kernel's
-		// socket path limit, so ZCode temp state points at a short shared
-		// runtime directory instead. Socket names carry process-unique
-		// random identifiers. The declared family, not the instance name,
-		// decides this redirect.
-		runtimeTemp := zcodeRuntimeTempDirectory
-		if err := os.MkdirAll(runtimeTemp, 0o700); err != nil {
-			return lease, fmt.Errorf("provider namespace: zcode runtime temp: %w", err)
+	if zcodeRuntimeTemp {
+		runtimeTemp := zcodeRuntimeTempPath(generation)
+		if runtimeTemp == "" {
+			return lease, fmt.Errorf("provider namespace: invalid ZCode runtime temp generation")
 		}
-		// The directory is shared across ZCode namespaces, so a pre-existing
-		// replacement with the wrong shape is rejected instead of trusted.
-		info, statErr := os.Lstat(runtimeTemp)
-		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 || info.Mode()&os.ModeSymlink != 0 {
-			return lease, fmt.Errorf("provider namespace: zcode runtime temp is not a private directory")
-		}
-		if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Getuid() {
-			return lease, fmt.Errorf("provider namespace: zcode runtime temp is not owned by the current user")
-		}
-		canonical, err := filepath.EvalSymlinks(runtimeTemp)
-		if err != nil {
-			return lease, fmt.Errorf("provider namespace: zcode runtime temp resolution: %w", err)
-		}
-		lease.zcodeRuntimeTemp, lease.zcodeRuntimeTempInfo = canonical, info
 		for index, variable := range environment {
 			switch variable.Name() {
 			case "TMPDIR", "TMP", "TEMP":
-				replacement, replaceErr := ports.NewEnvironmentVariable(variable.Name(), runtimeTemp)
-				if replaceErr != nil {
-					return lease, fmt.Errorf("provider namespace: zcode runtime temp: %w", replaceErr)
+				replacement, err := ports.NewEnvironmentVariable(variable.Name(), runtimeTemp)
+				if err != nil {
+					return lease, fmt.Errorf("provider namespace: ZCode runtime temp: %w", err)
 				}
 				environment[index] = replacement
 			}
@@ -635,6 +627,15 @@ func (lease *namespaceLease) drainTerminalEffects(ctx context.Context) error {
 		lease.terminalErr = errors.Join(lease.terminalErr, cleanup())
 	}
 	lease.terminalCredentialCleanup = nil
+	if owner := lease.zcodeRuntimeTempOwner; owner != nil {
+		if err := owner.removeNamespaceRoot(); err != nil {
+			return errors.Join(lease.terminalErr, fmt.Errorf("ZCode runtime temp drain: %w", err))
+		}
+		if err := owner.closeNamespaceDescriptors(); err != nil {
+			return errors.Join(lease.terminalErr, fmt.Errorf("ZCode runtime temp descriptor close: %w", err))
+		}
+		lease.zcodeRuntimeTempOwner = nil
+	}
 	if err := lease.removeNamespaceRoot(); err != nil {
 		return errors.Join(lease.terminalErr, err)
 	}
@@ -920,6 +921,9 @@ func locateNamespaceEntry(parentFD int, preferred string, expectedDevice int32, 
 }
 
 func (lease *namespaceLease) locateNamespaceEntry(parentFD int, preferred string, expectedDevice int32, expectedInode uint64) (string, error) {
+	if lease.exactRootName {
+		return preferred, namespaceEntryMatches(parentFD, preferred, expectedDevice, expectedInode)
+	}
 	name, pending, err := locateNamespaceEntry(parentFD, preferred, expectedDevice, expectedInode)
 	if pending != nil {
 		lease.pendingDescriptors = append(lease.pendingDescriptors, pending)

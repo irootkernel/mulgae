@@ -274,6 +274,7 @@ type ProviderExecutionObservation struct {
 	diagnosticCode     string
 	primaryCause       domain.RuntimeDiagnosticCause
 	cleanupCause       domain.RuntimeDiagnosticCause
+	stagedRejection    StagedOutputRejection
 	stdout             []byte
 	stderr             []byte
 	resultIsolated     bool
@@ -282,6 +283,49 @@ type ProviderExecutionObservation struct {
 	hasStagedOutput    bool
 	sessionObservation ProviderSessionObservation
 	hasSession         bool
+}
+
+// StagedOutputRejection is closed metadata for an operational staged-file
+// failure. It carries neither provider content nor filesystem details.
+type StagedOutputRejection string
+
+const (
+	StagedOutputMissing                  StagedOutputRejection = "staged_output_missing"
+	StagedOutputEmpty                    StagedOutputRejection = "staged_output_empty"
+	StagedOutputInvalidText              StagedOutputRejection = "staged_output_invalid_text"
+	StagedOutputCompletionMarkerMissing  StagedOutputRejection = "staged_output_completion_marker_missing"
+	StagedOutputCompletionMarkerMismatch StagedOutputRejection = "staged_output_completion_marker_mismatch"
+	StagedOutputCompletionMarkerInBody   StagedOutputRejection = "staged_output_completion_marker_in_body"
+	StagedOutputCompletionMarkerUnbound  StagedOutputRejection = "staged_output_completion_marker_unbound"
+	StagedOutputInvalidReceipt           StagedOutputRejection = "staged_output_invalid_receipt"
+)
+
+func (reason StagedOutputRejection) cause() domain.RuntimeDiagnosticCause {
+	switch reason {
+	case StagedOutputMissing:
+		return domain.DiagnosticCauseProviderOutputFileMissing
+	case StagedOutputEmpty, StagedOutputInvalidText, StagedOutputCompletionMarkerMissing,
+		StagedOutputCompletionMarkerMismatch, StagedOutputCompletionMarkerInBody,
+		StagedOutputCompletionMarkerUnbound, StagedOutputInvalidReceipt:
+		return domain.DiagnosticCauseProviderOutputFileInvalid
+	default:
+		return ""
+	}
+}
+
+// WithStagedOutputRejection adds bounded detail to an already failed, observed
+// artifact without changing its category or granting result authority.
+func (observation ProviderExecutionObservation) WithStagedOutputRejection(reason StagedOutputRejection) (ProviderExecutionObservation, error) {
+	if !observation.hasProcess || observation.status != ProviderExecutionStatusArtifactFailure ||
+		reason.cause() == "" || reason.cause() != observation.primaryCause {
+		return ProviderExecutionObservation{}, fmt.Errorf("provider execution observation: invalid staged output rejection")
+	}
+	observation.stagedRejection = reason
+	return observation, nil
+}
+
+func (observation ProviderExecutionObservation) StagedOutputRejection() StagedOutputRejection {
+	return observation.stagedRejection
 }
 
 // NewSuccessfulProviderExecutionObservation records a successful provider

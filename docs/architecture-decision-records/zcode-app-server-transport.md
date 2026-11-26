@@ -1,20 +1,16 @@
 # ZCode app-server transport
 
-Status: Accepted
+Status: Superseded by [ZCode herdr-core terminal transport](zcode-herdr-core-transport.md).
 
 Roadmap: [EPIC-003](../roadmap/README.md#epic-003-zcode-app-server-provider-transport)
 
 ## Authority
 
-This document records the transport decision accepted by TASK-010. Current
-runtime behavior is owned by source, tests, embedded contracts, and the
-contributor documents. ZCode review and qualification invocations speak the
-app-server protocol; there is no compatibility layer or print fallback.
+This document preserves the app-server transport decision accepted by
+`TASK-010`. The current ZCode runtime follows the linked replacement ADR.
 
-The accepted behavior is reflected in `docs/specs/contracts.md`,
-`docs/specs/security.md`, and the qualification guidance in
-`internal/app/reviewrun`, together with the conversation runner and driver
-session interface introduced by TASK-009.
+At adoption, the contract and security specs documented this behavior.
+`TASK-009` introduced the conversation runner and driver session interface.
 
 ## Problem
 
@@ -124,8 +120,8 @@ following facts, verified end to end including one real model turn:
 
 ## Consequences
 
-The current adapter passes `--stdio` explicitly in its app-owned launch shape.
-This makes the selected wire visible in the fixed argv even though the original
+The app-server adapter passed `--stdio` explicitly in its app-owned launch
+shape. This made the selected wire visible in the fixed argv even though the original
 0.16.5 observation showed that standard pipes were already the default.
 
 - Protocol-native failure classification is typed: an unparseable message is
@@ -156,16 +152,16 @@ This makes the selected wire visible in the fixed argv even though the original
   conversation's captured assistant text, preserving the controlled
   nonce/link/role proof.
 
-## Current certification
+## Historical certification
 
-ZCode app 3.12.3 is the minimum and currently verified app release for this
-adapter. Newer app releases remain eligible as `newer_than_verified`. Mulgae
-reads `Contents/Info.plist` without launching the app, binds its
+ZCode app 3.12.3 was the minimum and verified app release for this
+adapter. Newer app releases were eligible as `newer_than_verified`. Mulgae
+read `Contents/Info.plist` without launching the app, bound its
 `CFBundleShortVersionString`, path, and SHA-256 identity into qualification, and
-revalidates the metadata identity immediately before every provider spawn. Its
-bundled `zcode.cjs --version` reports launcher protocol 0.16.5; that protocol
-version is what provider qualification observes, so 0.16.5 remains both the
-runtime minimum and verified-latest guidance. Certification covers the
+revalidated the metadata identity immediately before every provider spawn. Its
+bundled `zcode.cjs --version` reported launcher protocol 0.16.5. Provider
+qualification observed that protocol version, which was both the runtime
+minimum and verified-latest guidance. Certification covered the
 app-owned Electron runtime, explicit `zcode.cjs app-server --stdio` launch
 shape, v2 Z.AI Individual Coding Plan account bridging, and optional exact
 `session/setModel` and `session/setThoughtLevel` calls after create and before

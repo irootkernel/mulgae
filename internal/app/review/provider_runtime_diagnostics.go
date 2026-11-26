@@ -24,6 +24,17 @@ func (runtime *ProviderInvocationRuntime) emitInvocationDiagnostic(
 	stream domain.RuntimeDiagnosticStream,
 	length int64,
 ) error {
+	input := domain.RuntimeDiagnosticEventInput{
+		Level: level, Event: code, Cause: cause, State: state, Outcome: outcome,
+		Termination: termination, ExitCode: exitCode, HasExitCode: hasExitCode,
+	}
+	if stream.Valid() && length > 0 {
+		input.Stream, input.Offset, input.Length = stream, 0, length
+	}
+	return runtime.emitProviderRuntimeEvent(ctx, job, input)
+}
+
+func (runtime *ProviderInvocationRuntime) emitProviderRuntimeEvent(ctx context.Context, job InvocationJob, input domain.RuntimeDiagnosticEventInput) error {
 	if runtime == nil || runtime.diagnostics == nil {
 		return nil
 	}
@@ -31,16 +42,10 @@ func (runtime *ProviderInvocationRuntime) emitInvocationDiagnostic(
 	if !ok || nilInterface(sink) {
 		return errors.New("provider invocation runtime: mandatory diagnostic sink unavailable")
 	}
-	input := domain.RuntimeDiagnosticEventInput{
-		Level: level, Component: "provider_runtime", Operation: "invoke", Event: code,
-		SessionID: job.SessionID(), RunID: job.RunID(), AttemptID: job.AttemptID(),
-		InvocationID: runtime.diagnosticInvocationID(job), Role: job.Role(), Provider: job.Route().ProviderInstance(),
-		ExecutionInvocationID: runtime.diagnosticExecutionInvocationID(job),
-		Cause:                 cause, State: state, Outcome: outcome, Termination: termination, ExitCode: exitCode, HasExitCode: hasExitCode,
-	}
-	if stream.Valid() && length > 0 {
-		input.Stream, input.Offset, input.Length = stream, 0, length
-	}
+	input.Component, input.Operation = "provider_runtime", "invoke"
+	input.SessionID, input.RunID, input.AttemptID = job.SessionID(), job.RunID(), job.AttemptID()
+	input.InvocationID, input.Role, input.Provider = runtime.diagnosticInvocationID(job), job.Role(), job.Route().ProviderInstance()
+	input.ExecutionInvocationID = runtime.diagnosticExecutionInvocationID(job)
 	draft, err := domain.NewRuntimeDiagnosticEventDraft(input)
 	if err != nil {
 		return err
@@ -223,7 +228,10 @@ func (runtime *ProviderInvocationRuntime) emitObservationDiagnostics(ctx context
 			level, code = domain.RuntimeDiagnosticError, domain.DiagnosticProcessTerminated
 		}
 		exitCode, hasExitCode := observation.ExitCode()
-		if err := runtime.emitInvocationDiagnostic(ctx, job, level, code, cause, "", string(observation.Status()), string(process.Termination()), exitCode, hasExitCode, "", 0); err != nil {
+		if err := runtime.emitProviderRuntimeEvent(ctx, job, domain.RuntimeDiagnosticEventInput{
+			Level: level, Event: code, Cause: cause, Failure: string(observation.StagedOutputRejection()),
+			Outcome: string(observation.Status()), Termination: string(process.Termination()), ExitCode: exitCode, HasExitCode: hasExitCode,
+		}); err != nil {
 			return err
 		}
 	}

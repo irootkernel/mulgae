@@ -19,7 +19,11 @@ import (
 )
 
 func TestZCodeRegistryRetainsTerminalFailures(t *testing.T) {
-	for _, scenario := range []string{"account", "model", "residual", "runtime drift", "binding drift", "qualification package drift"} {
+	stagedRejections := map[string]ports.StagedOutputRejection{
+		"missing output": ports.StagedOutputMissing, "empty output": ports.StagedOutputEmpty,
+		"missing marker": ports.StagedOutputCompletionMarkerMissing, "wrong marker": ports.StagedOutputCompletionMarkerMismatch,
+	}
+	for _, scenario := range []string{"account", "model", "residual", "runtime drift", "binding drift", "qualification package drift", "missing output", "empty output", "missing marker", "wrong marker"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := t.Context()
 			f := newTerminalTestFixture(t)
@@ -84,6 +88,19 @@ func TestZCodeRegistryRetainsTerminalFailures(t *testing.T) {
 			terminalIdentity := defaultFakeTerminalIdentity(t)
 			terminal := &fakeTerminalSessionRunner{identity: terminalIdentity}
 			terminal.runFunc = func(_ context.Context, req ports.TerminalExecutionRequest) (ports.TerminalExecutionObservation, error) {
+				if reason := stagedRejections[scenario]; reason != "" {
+					if reason != ports.StagedOutputMissing {
+						boundary, _ := req.Process().LiveReadOnlyBoundary()
+						path := findStagedOutputPath(t, boundary.WritableRoot().String(), stagedOutputFilename)
+						contents := map[string]string{"missing marker": "# Fixture report\n", "wrong marker": "# Fixture report\nMULGAE_COMPLETE:wrong\n"}
+						if err := os.WriteFile(path, []byte(contents[scenario]), 0o600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					return makeTerminalSessionObservation(t, terminal, req, ports.TerminalExecutionObservationInput{
+						ProgramStatus: ports.TerminalProgramStatusDone, TurnCount: 1,
+					}, ports.ProcessTerminationExited, 0, true, nil, nil), nil
+				}
 				if scenario != "model" && scenario != "residual" {
 					t.Fatal("terminal pane started despite preflight refusal")
 				}
@@ -213,6 +230,19 @@ func TestZCodeRegistryRetainsTerminalFailures(t *testing.T) {
 				t.Fatalf("invalid failure observation: %v / %v", err, observation.Validate())
 			}
 			_, hasProcess := observation.AvailableProcessObservation()
+			if got, want := observation.StagedOutputRejection(), stagedRejections[scenario]; got != want {
+				t.Fatalf("staged output rejection = %q, want %q", got, want)
+			}
+			if reason := stagedRejections[scenario]; reason != "" {
+				wantCause := domain.DiagnosticCauseProviderOutputFileInvalid
+				if reason == ports.StagedOutputMissing {
+					wantCause = domain.DiagnosticCauseProviderOutputFileMissing
+				}
+				if observation.Status() != ports.ProviderExecutionStatusArtifactFailure ||
+					observation.PrimaryCause() != wantCause || observation.DiagnosticCode() != "invalid_provider_output" || !hasProcess {
+					t.Fatalf("unexpected staged failure projection: %s/%s/%s", observation.Status(), observation.PrimaryCause(), observation.DiagnosticCode())
+				}
+			}
 			switch scenario {
 			case "account":
 				if observation.Status() != ports.ProviderExecutionStatusConfigurationViolation ||

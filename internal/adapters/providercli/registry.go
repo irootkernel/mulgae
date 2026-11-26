@@ -28,8 +28,9 @@ const (
 var errProviderOutputFrameMissing = errors.New("provider output frame missing")
 
 type providerOutputFailure struct {
-	cause domain.RuntimeDiagnosticCause
-	err   error
+	cause           domain.RuntimeDiagnosticCause
+	stagedRejection ports.StagedOutputRejection
+	err             error
 }
 
 func (failure *providerOutputFailure) Error() string {
@@ -1116,7 +1117,7 @@ func (r *Registry) Observe(ctx context.Context, invocation ports.ProviderInvocat
 			if failedErr != nil {
 				return ports.ProviderExecutionObservation{}, providerRuntimeFailure(termFailure.Cause(), errors.Join(termFailure, failedErr))
 			}
-			return failedObs, nil
+			return retainStagedOutputRejection(failedObs, termFailure)
 		}
 		// Boundary and cleanup failures describe a compromised observation and
 		// outrank the process's concurrent cancellation or timeout termination.
@@ -1398,9 +1399,13 @@ func stagedFileObservation(
 	if validateErr != nil {
 		cause := stagedOutputCause(validateErr)
 		status, diagnostic := providerFailureProjection(cause)
-		return ports.NewFailedProviderExecutionObservationWithCause(
+		failed, err := ports.NewFailedProviderExecutionObservationWithCause(
 			status, invocation, processObservation, diagnostic, cause, "",
 		)
+		if err != nil {
+			return ports.ProviderExecutionObservation{}, err
+		}
+		return retainStagedOutputRejection(failed, validateErr)
 	}
 	result, resultErr := ports.NewProviderResultForInput(staged, invocation.InputIdentity())
 	if resultErr != nil {
@@ -1422,6 +1427,15 @@ func stagedOutputCause(err error) domain.RuntimeDiagnosticCause {
 		return failure.Cause()
 	}
 	return domain.DiagnosticCauseProviderOutputStagingViolation
+}
+
+func retainStagedOutputRejection(observation ports.ProviderExecutionObservation, err error) (ports.ProviderExecutionObservation, error) {
+	var failure *providerOutputFailure
+	if observation.Status() == ports.ProviderExecutionStatusArtifactFailure &&
+		errors.As(err, &failure) && failure.stagedRejection != "" {
+		return observation.WithStagedOutputRejection(failure.stagedRejection)
+	}
+	return observation, nil
 }
 
 func providerRuntimeFailure(cause domain.RuntimeDiagnosticCause, err error) error {
