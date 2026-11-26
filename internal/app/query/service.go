@@ -675,6 +675,13 @@ func (service *Service) statusWithin(ctx context.Context, context *readContext, 
 	if err := context.verifySnapshot(ctx, node); err != nil {
 		return RunStatus{}, err
 	}
+	retired, err := context.committedRetired(ctx, node)
+	if err != nil {
+		return RunStatus{}, err
+	}
+	if retired {
+		return RunStatus{}, typedFailure(readStatusStage, domain.FailureArtifact, retiredProviderArtifactReason, nil)
+	}
 	review := node.review
 	status.runState = review.RunState()
 	status.hasRunState = true

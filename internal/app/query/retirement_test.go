@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -162,6 +163,33 @@ func TestReadCommittedRejectsRetiredProductionProvider(t *testing.T) {
 		if !errors.As(err, &failure) || failure.Class() != domain.FailureArtifact || failure.Reason() != retiredProviderArtifactReason {
 			t.Fatalf("%s artifact failure = %#v, want %q", family, err, retiredProviderArtifactReason)
 		}
+		if !IsRetiredProviderArtifact(err) {
+			t.Fatalf("%s IsRetiredProviderArtifact(%v) = false, want true", family, err)
+		}
+		_, statusErr := service.ReadRunStatus(context.Background(), run)
+		if !IsRetiredProviderArtifact(statusErr) {
+			t.Fatalf("%s ReadRunStatus failure = %#v, want retired_provider_artifact", family, statusErr)
+		}
+	}
+}
+
+func TestIsRetiredProviderArtifact(t *testing.T) {
+	retired := typedFailure("query.read_committed", domain.FailureArtifact, RetiredProviderArtifactReason, nil)
+	nested := typedFailure("query.read_status", domain.FailureArtifact, "failed-run recovery source is invalid", retired)
+	other := typedFailure("query.read_committed", domain.FailureArtifact, "corrupt manifest", nil)
+	wrongClass := typedFailure("query.read_committed", domain.FailureConfiguration, RetiredProviderArtifactReason, nil)
+
+	if !IsRetiredProviderArtifact(retired) ||
+		!IsRetiredProviderArtifact(nested) ||
+		!IsRetiredProviderArtifact(fmt.Errorf("wrap: %w", retired)) ||
+		!IsRetiredProviderArtifact(errors.Join(other, retired)) {
+		t.Fatal("IsRetiredProviderArtifact missed a typed retired-provider artifact failure")
+	}
+	if IsRetiredProviderArtifact(nil) ||
+		IsRetiredProviderArtifact(other) ||
+		IsRetiredProviderArtifact(wrongClass) ||
+		IsRetiredProviderArtifact(errors.New(RetiredProviderArtifactReason)) {
+		t.Fatal("IsRetiredProviderArtifact matched a non-retired or untyped error")
 	}
 }
 

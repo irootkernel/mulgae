@@ -479,6 +479,9 @@ func publicToolError(err error, tool string) ToolError {
 		case domain.FailureConfiguration:
 			return finalizePublicToolError(err, tool, ToolError{Class: "usage", Code: "configuration_rejected", Stage: "admission", Message: "The project configuration or request is invalid.", Retryable: false})
 		case domain.FailureArtifact:
+			if query.IsRetiredProviderArtifact(err) {
+				return finalizePublicToolError(err, tool, ToolError{Class: "artifact", Code: query.RetiredProviderArtifactReason, Stage: stage, Message: "The requested artifact references a retired provider and cannot be read or exported.", Retryable: false})
+			}
 			return finalizePublicToolError(err, tool, ToolError{Class: "artifact", Code: "artifact_unavailable", Stage: stage, Message: "The requested verified artifact is unavailable.", Retryable: false})
 		case domain.FailureCancelled:
 			return finalizePublicToolError(err, tool, ToolError{Class: "cancellation", Code: "request_cancelled", Stage: stage, Message: "The tool request was cancelled.", Retryable: false})

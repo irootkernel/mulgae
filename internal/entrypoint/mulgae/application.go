@@ -897,6 +897,17 @@ func (application *Application) Run(ctx context.Context, argv []string, canonica
 			return rejectedSelectorHumanResult(selectorFailure(app.CommandExport, requestID, err))
 		}
 		class := reducedFailureClass(err, domain.FailureInternal)
+		if class == domain.FailureArtifact && appquery.IsRetiredProviderArtifact(err) {
+			command := app.CommandExport
+			if len(argv) != 0 {
+				if parsed, parseErr := app.ParseCommandName(argv[0]); parseErr == nil {
+					command = parsed
+				}
+			}
+			failure := normalizeExecutionFailure(command, *executionFailureFor(command, err, domain.FailureArtifact))
+			human := appendHumanFailureDetails([]byte(failure.humanMessage), failure)
+			return errorResult(projectedFailureExit(command, failure.exit), string(human))
+		}
 		return errorResult(requestedExit(class), humanFailureMessage(class))
 	}
 	if invocation.FutureMilestone() {
@@ -1554,7 +1565,16 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	case domain.FailureConfiguration:
 		failure.code = "configuration_rejected"
 	case domain.FailureArtifact:
-		failure.code = "artifact_unavailable"
+		if appquery.IsRetiredProviderArtifact(err) {
+			failure.code = appquery.RetiredProviderArtifactReason
+			failure.message = "Artifacts referencing a retired provider cannot be read or exported; hint: run mulgae clean --dry-run."
+			failure.humanMessage = "mulgae: artifact references a retired provider and cannot be read or exported"
+			failure.retryable = false
+			failure.hasRetryable = true
+			failure.recommendedNextCommand = "mulgae clean --dry-run"
+		} else {
+			failure.code = "artifact_unavailable"
+		}
 	case domain.FailureSecurityPolicy:
 		if reason, ok := ports.ConfigLocalityReasonFromError(err); ok {
 			failure.code = string(reason)

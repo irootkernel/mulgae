@@ -9,7 +9,41 @@ import (
 	"github.com/irootkernel/mulgae/internal/ports"
 )
 
-const retiredProviderArtifactReason = "retired_provider_artifact"
+// RetiredProviderArtifactReason is the stable public machine code for verified
+// reads and exports rejected because direct or transitive lineage names a
+// retired provider family.
+const RetiredProviderArtifactReason = "retired_provider_artifact"
+
+const retiredProviderArtifactReason = RetiredProviderArtifactReason
+
+// IsRetiredProviderArtifact reports whether err carries a typed artifact
+// failure rejecting a retired-provider artifact, including through multi-error
+// joins and nested artifact wrappers. Callers must preserve failure-class
+// precedence before projecting this code.
+func IsRetiredProviderArtifact(err error) bool {
+	if err == nil {
+		return false
+	}
+	if typed, ok := err.(*domain.Failure); ok && typed != nil {
+		if typed.Class() == domain.FailureArtifact && typed.Reason() == RetiredProviderArtifactReason {
+			return true
+		}
+		return IsRetiredProviderArtifact(typed.Unwrap())
+	}
+	switch nested := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, child := range nested.Unwrap() {
+			if IsRetiredProviderArtifact(child) {
+				return true
+			}
+		}
+		return false
+	case interface{ Unwrap() error }:
+		return IsRetiredProviderArtifact(nested.Unwrap())
+	default:
+		return false
+	}
+}
 
 func retiredProviderInstance(value string) bool {
 	return providerInstanceRetired(value, false)
