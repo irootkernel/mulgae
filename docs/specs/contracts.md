@@ -760,7 +760,7 @@ or native pathname. Public status keeps its existing reason codes.
 | `staged_output_completion_marker_mismatch` | The final completion marker carried the wrong value. |
 | `staged_output_completion_marker_in_body` | The completion marker appeared inside the report body. |
 | `staged_output_completion_marker_unbound` | The invocation lacked an expected completion marker. |
-| `staged_output_invalid_receipt` | The receipt for the report body could not be constructed. |
+| `staged_output_invalid_receipt` | The staged-file receipt or the report-body receipt after marker removal could not be constructed. |
 
 Current diagnostic-only status reports `recovery_action: none`. Runtime
 diagnostics and provider streams are not validated publication material, so an
@@ -806,11 +806,11 @@ without exposing their content. There is no new historical replay or recovery
 execution path.
 
 MCP uses the same configured route, preflight, result and inspection owners.
-It adds no init/configuration tool or provider selector. Heartbeat's synthetic
-`grok-logic` namespace is registered independently of enabled review roles
-whenever Grok is configured, so an unassigned route can still use the
-authorized diagnostic; `grok-logic` projects `~/.grok/auth.json` lazily only
-when the namespace is acquired.
+It adds no init/configuration tool or provider selector. Configured ZCode
+and Grok routes register synthetic `zcode-logic` and `grok-logic` heartbeat
+namespaces independently of enabled review roles. This allows the
+authorized diagnostic when no review role uses the configured provider.
+`grok-logic` projects `~/.grok/auth.json` lazily on namespace acquisition.
 
 ## Output and exits
 

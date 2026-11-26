@@ -557,6 +557,10 @@ Production composition resolves the shared values once into the Grok runtime
 template used by review, retry, repair, extraction, qualification, and
 heartbeat paths.
 
+For ZCode, new projects default to `account:zai-individual-coding-plan/GLM-5.4`
+and `max` unless explicitly overridden. Existing Config v5 projects can
+omit either setting to preserve the corresponding ZCode session value.
+
 Runtime assets are ordinary files under `internal/builtin/assets`, included with
 `go:embed`. `CHECKSUMS.sha256` is generated from those files and validated
 before the catalog serves any asset.

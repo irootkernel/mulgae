@@ -77,8 +77,8 @@ provider live boundary denies shared `herdr-core` control-plane roots and socket
 and neutral roots remain read only; credential roots deny reads, writes, links
 and protected Unix socket access. The same socket denial applies to the other
 protected roots. Writable filesystem roots are the owned invocation
-namespace and, for ZCode only, its existing private short native socket
-directory; writes to `/dev/null` are also allowed. Explicit protected denials
+namespace and, for ZCode, its private short socket directory
+`/tmp/mulgae-zcode/<16hex>`. Writes to `/dev/null` are also allowed. Explicit protected denials
 win on overlap. The short directory must
 retain its admitted canonical identity, current-user ownership and private
 mode before and after execution. These public

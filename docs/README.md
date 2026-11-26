@@ -127,19 +127,16 @@ execution order, dependencies, and status. The
 records the grouping and responsibility boundaries.
 
 [EPIC-019 ZCode herdr-core terminal runtime migration via herdr-zcode](roadmap/README.md#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode)
-is adopted as planned work (`TASK-094` through `TASK-098`) following completed
-`EPIC-017` and `EPIC-018`. Its temporary execution SOT lives at
-[ZCode herdr-core terminal runtime migration](todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
-and its structural rationale lives in the accepted
-[ZCode herdr-core terminal transport ADR](architecture-decision-records/zcode-herdr-core-transport.md).
-The current candidate uses the shared `herdr-core` terminal runtime for ZCode
-through `herdr-zcode`. The companion owns Desktop access. ZCode workspace
-reviews run shell-free, Config v5 and `doctor-result.v9` remain current, and
-omitted model or effort settings inherit the corresponding session setting.
+completed `TASK-094` through `TASK-098`. The
+[accepted ZCode transport ADR](architecture-decision-records/zcode-herdr-core-transport.md)
+records the migration and native certification. Mulgae uses the shared
+`herdr-core` terminal runtime for ZCode through `herdr-zcode`, and the
+companion owns Desktop access. ZCode workspace reviews run shell-free.
 
 New ZCode projects default to `GLM-5.4` with `max` reasoning effort.
-`mulgae-command-result.v26` reports the source of each setting. `TASK-098`
-owns integrated native certification, the ADR promotion, and `DF-030` closeout.
+`mulgae-command-result.v26` reports the source of each setting. Config v5
+and `doctor-result.v9` remain current, and omitted model or effort settings
+inherit the corresponding session setting.
 
 ## Native Haepari review coordination
 

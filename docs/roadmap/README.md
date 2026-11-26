@@ -38,7 +38,7 @@ not complete an epic without explicit epic acceptance.
 | [EPIC-016](#epic-016-native-haepari-review-coordination-and-release-qualification) | Completed | Coordinate CLI/MCP live reviews through one native Haepari advisory grant and qualify the released binary, complete paired skill and migration in the dedicated guest. |
 | [EPIC-017](#epic-017-herdr-core-terminal-runtime-and-grok-migration) | Completed | Build a reusable isolated `herdr-core` terminal runtime with shared outer macOS Seatbelt and scratch-file delivery, and migrate Grok CLI (`FamilyGrok`) onto it first. |
 | [EPIC-018](#epic-018-live-review-reliability-extraction-fidelity-and-zcode-efficiency) | Completed | Eliminate live-review timeout/requirements run-loss crashes, align extraction prompts and lossless read-plan compaction, enable same-profile ZCode qualification sharing and Git-scope tool hygiene, harden readiness probe wording, and remove the coordinator wave barrier. |
-| [EPIC-019](#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode) | In Progress | Migrate ZCode (`FamilyZcode`) onto Mulgae's shared isolated `herdr-core` terminal runtime via `herdr-zcode`'s `core` runtime, retiring Go-side ZCode Desktop coupling while defaulting new projects to `GLM-5.4` / `max` and preserving ZCode's current model when omitted. |
+| [EPIC-019](#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode) | Completed | Migrate ZCode (`FamilyZcode`) onto Mulgae's shared isolated `herdr-core` terminal runtime via `herdr-zcode`'s `core` runtime, retiring Go-side ZCode Desktop coupling while defaulting new projects to `GLM-5.4` / `max` and preserving ZCode's current model when omitted. |
 
 ## Adopted execution order
 
@@ -128,21 +128,11 @@ changes, per-item findings isolation, and ZCode non-extraction narration
 filtering remain outside EPIC-018. Release, installation, commit, push, and
 external-effect authority remain separate.
 
-EPIC-019 follows completed EPIC-017 and EPIC-018 with
-no dependency on EPIC-016. Its five member Tasks (`TASK-094` through
-`TASK-098`: four substantive member Goals plus whole-Epic validation,
-certification, and closeout) execute sequentially in table order under the
-temporary execution SOT
-[ZCode herdr-core terminal runtime migration](../todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
-and the accepted
-[ZCode herdr-core terminal transport ADR](../architecture-decision-records/zcode-herdr-core-transport.md).
-EPIC-019 qualified against the external companion `herdr-zcode` `0.2.0`
-release installed to `~/.local` providing
-`--catalog-file`, `prepare-isolated`, and `--check-desktop --json` (advertised
-via `--version --json`, verified via its agreed 20-runtime-file SHA-256
-fingerprint). `TASK-096` and `TASK-097` landed the terminal transport and
-its policy cutover. Release, installation,
-commit, push, and external-effect authority remain separate.
+EPIC-019 completed after EPIC-017 and EPIC-018 with no dependency on EPIC-016.
+Its five Tasks (`TASK-094` through `TASK-098`) migrated ZCode to the shared
+isolated terminal runtime and certified the integrated candidate on native
+Apple Silicon macOS. The [accepted transport ADR](../architecture-decision-records/zcode-herdr-core-transport.md)
+records the companion prerequisite and native checks.
 
 Within an executable Epic, run Tasks in table order as independent sequential
 goals; each Task depends on the preceding Task. EPIC-009, EPIC-010, and
@@ -1309,7 +1299,7 @@ non-extraction ZCode role-report retention (`TestZCodeNonExtractionPreservesTool
 
 ## EPIC-019: ZCode herdr-core terminal runtime migration via herdr-zcode
 
-Status: In Progress
+Status: Completed
 
 Depends on: completed EPIC-017 and EPIC-018. No dependency on EPIC-016.
 External companion prerequisite in `herdr-zcode` `0.2.0` (`--catalog-file`,
@@ -1317,7 +1307,14 @@ External companion prerequisite in `herdr-zcode` `0.2.0` (`--catalog-file`,
 `--version --json`, committed, live-certified, and installed to `~/.local`)
 gates `EPIC-019` execution.
 
-Detailed SOT: [ZCode herdr-core terminal runtime migration](../todo/TODO-ZCODE-HERDR-CORE-MIGRATION.md)
+Canonical Outcomes: [architecture](../architecture/README.md),
+[security](../specs/security.md), [contracts](../specs/contracts.md),
+[live workspace and Git review](../specs/live-workspace-and-git-review.md),
+[gating rules](../gating-rules.md), [implementation guidance](../implementation-tips/README.md),
+[accepted ZCode transport ADR](../architecture-decision-records/zcode-herdr-core-transport.md),
+[deferred feedback](../deferred-feedback/README.md), [consumer documentation](../../README.md),
+[use-mulgae](../../skills/use-mulgae/SKILL.md), [release notes](../../CHANGELOG.md),
+and the [embedded assets](../../internal/builtin/assets).
 
 Design Decision: [ZCode herdr-core terminal transport](../architecture-decision-records/zcode-herdr-core-transport.md) (`Accepted`)
 
@@ -1334,10 +1331,7 @@ fields on ZCode's current session model and effort; preserve Config v5 and
 `doctor-result.v9`; and unify workspace reviews as shell-free
 (`TASK-095` confirmed `artist` image reads through `Read`).
 
-Approved design boundaries (complete mechanics, external `herdr-zcode`
-contract, requirement traceability matrix, member-scope roster, disposable
-cleanup contract, security invariants, per-Task checklists, and the 10-item
-`TASK-095` go/no-go live spike matrix live in the Detailed SOT):
+Implemented boundaries and verification owners:
 
 - **Full decoupling behind `herdr-zcode`**: `herdr-zcode` owns `ZCode.app`
   bundle layout, `zcode.cjs`, active catalog selection (Desktop cache rev `48`
@@ -1374,8 +1368,8 @@ cleanup contract, security invariants, per-Task checklists, and the 10-item
 - **Workspace shell-free unification (`DF-030`) and qualification sharing**:
   Workspace reviews (`Read,Grep,Glob,Write`) and extraction/qualification/
   heartbeat (`Read,Write`) run shell-free while Git scopes (`Read,Bash,Write`)
-  run strictly under all five `B-1` `BashGate` controls (gated on `TASK-095`
-  confirming `artist` multimodal image reads via `Read` alone). Same-profile
+  run strictly under all five `B-1` `BashGate` controls. `TASK-095`
+  confirmed workspace `artist` multimodal image reads via `Read`. Same-profile
   ZCode qualification sharing (`EPIC-018 TASK-091`) is preserved while binding
   `herdr-core`, 20-file `herdr-zcode` package digest, observed desktop/catalog
   receipt, and omitted-vs-explicit model/effort into
@@ -1396,23 +1390,23 @@ copied checkouts; no Mulgae-specific prompt/staging/output logic inside
 
 ### Epic acceptance
 
-- [ ] External `herdr-zcode` companion capabilities (`--catalog-file`,
+- [x] External `herdr-zcode` companion capabilities (`--catalog-file`,
       `prepare-isolated`, `--check-desktop --json`, advertised via
       `--version --json`) are installed and verified on host, and every member
       Task (`TASK-094` through `TASK-098`) has implementation and verification
       evidence matching its acceptance criteria.
-- [ ] `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and
+- [x] `zcode_protocol.go`, `zcode_account.go`, `zcode_keychain.go`, and
       Mulgae's internal `ZCode.app` component probing are fully retired and
       deleted, with architecture/import guards proving zero remaining Go-side
       ZCode Desktop internal coupling while frozen historical readers remain
       intact.
-- [ ] Full `herdr-zcode` package SHA-256 verification, host `prepare-isolated`
+- [x] Full `herdr-zcode` package SHA-256 verification, host `prepare-isolated`
       isolation and drain zeroing, narrowed `BashGate` `process-exec` denial,
       kernel-denied native `~/.zcode` and `~/Library/Keychains`, shell-free
       workspace/`artist`/extraction/qualification execution, Git five-control
       `B-1` `BashGate`, and `<= 1s` `ESRCH` teardown with zero leaks are
       proven by deterministic kernel tests and live certification.
-- [ ] New `mulgae init` defaults ZCode to
+- [x] New `mulgae init` defaults ZCode to
       `account:zai-individual-coding-plan/GLM-5.4` + `max` (`"mulgae_default"`
       under `mulgae-command-result.v26` with `v25` retained frozen), existing
       Config v5 omission preserves ZCode's current session model and effort,
@@ -1420,17 +1414,17 @@ copied checkouts; no Mulgae-specific prompt/staging/output logic inside
       qualification sharing (`EPIC-018 TASK-091`) is preserved across identical
       profiles while partitioning on any setting, package digest, or catalog
       difference.
-- [ ] Complete exact-candidate gates (`make test-offline`, `make test-release`,
+- [x] Complete exact-candidate gates (`make test-offline`, `make test-release`,
       `make test-herdr`, mandatory live ZCode `make test-e2e`, and live
       `make test-grok` regression) pass on native Apple Silicon macOS. Existing
       host access checks pass, protected provider files and the operator's
       `default` `herdr-core` session stay unchanged, and execution-owned
       processes and temporary paths are removed. Whole-home hash comparisons
       are recorded as observations.
-- [ ] Durable outcomes are promoted to canonical specs, architecture, gating
+- [x] Durable outcomes are promoted to canonical specs, architecture, gating
       rules, implementation tips, embedded assets, `CHANGELOG.md`, `README.md`,
       `skills/use-mulgae`, and accepted ADR (superseding
       `zcode-app-server-transport.md`); `DF-030` is closed; `Detailed SOT` is
       replaced with `Canonical Outcomes` and the temporary dossier and its
       `docs/todo/README.md` entry are retired in the approved closeout diff;
-      and Master explicitly accepts `EPIC-019`.
+      and Master explicitly accepted `EPIC-019`.

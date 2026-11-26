@@ -11,9 +11,7 @@ the AGY review provider.)
 
 ## Adopted active dossiers
 
-- [EPIC-019](../roadmap/README.md#epic-019-zcode-herdr-core-terminal-runtime-migration-via-herdr-zcode):
-  [ZCode herdr-core terminal runtime migration](TODO-ZCODE-HERDR-CORE-MIGRATION.md)
-  (temporary execution SOT for sequential Tasks `TASK-094` through `TASK-098`).
+None currently active.
 
 Execute the Epics and their Tasks in the order owned by the
 [roadmap](../roadmap/README.md#adopted-execution-order). Adoption does not imply

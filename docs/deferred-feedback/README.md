@@ -26,16 +26,11 @@ work.
   nested public call and each report chunk or MCP continuation verify freshly
   in their own contexts. No deferred work remains.
 
-- `DF-004` ZCode's admitted short native socket directory is shared by guarded
-  sessions. The guard isolates each invocation's credentials and scratch, but
-  its fixed runtime-directory exception permits one guarded session to alter
-  another session's temporary entries or connect to its socket there. Random
-  socket names avoid accidental collisions; they do not provide kernel
-  isolation between sessions. This is a bounded residual of the approved
-  native-IPC exception, rather than a promise of general process or IPC
-  containment. Re-entry: a demonstrated interference failure, or a supported
-  short per-invocation native temp path, warrants a separately approved
-  runtime-directory change with real concurrent-provider certification.
+- `DF-004` ZCode formerly used one short socket directory for guarded
+  sessions. EPIC-019 assigns each namespace its own private short child at
+  `/tmp/mulgae-zcode/<16hex>`, denies peer children in Seatbelt, and
+  drains the owned child after teardown. Re-entry: a demonstrated
+  cross-session interference failure warrants a targeted investigation.
 
 - `DF-005` Optional run-authority observations: closed production adapters
   currently implement the observation capability. A future injected factory
@@ -173,13 +168,11 @@ work.
   or spooling with complete content and existing file-identity checks
   preserved.
 
-- `DF-016` ZCode fallback credential format: absent an environment secret,
-  the current local fallback key is predictable. Native credential access
-  requires accepted file ownership and mode 0600. External desktop-format
-  behavior remains unverified. Re-entry: a verified provider-format change or
-  new confidentiality requirement warrants an explicitly authorized
-  credential-format investigation; do not migrate credentials from this
-  report alone.
+- `DF-016` The retired ZCode app-server adapter used a predictable local
+  fallback key when no environment secret was set. EPIC-019 removed that
+  adapter and the fallback path. The current companion prepares isolated
+  credentials outside the review sandbox. External Desktop credential
+  formats remain outside the Mulgae contract.
 
 - `DF-017` Codex permission boundary: historically tracked native Codex
   permission enforcement while Mulgae's outer filesystem guard applied to ZCode

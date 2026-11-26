@@ -12,6 +12,9 @@ This document preserves the app-server transport decision accepted by
 At adoption, the contract and security specs documented this behavior.
 `TASK-009` introduced the conversation runner and driver session interface.
 
+The sections below describe the retired implementation and its original
+protocol observations. The replacement ADR owns current behavior.
+
 ## Problem
 
 The ZCode family's one-shot print invocation launched
