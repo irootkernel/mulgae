@@ -109,10 +109,16 @@ identities. Cancellation never rolls back an already committed publication.
    user explicitly requested initialization; then read
    [lifecycle.md](references/lifecycle.md). The first file is shared project
    policy; the second is private machine configuration. Upgrading Mulgae
-   preserves an existing valid Config v5 pair (including custom provider-role
-   routing, timeouts, and artist inputs) and
-   retained `.mulgae/` history; never run a fresh `mulgae init` over an already
-   configured project. Native context and verified reads do not require
+   preserves an existing valid Config v5 pair for active providers (`zcode`,
+   `grok`), including custom provider-role routing, timeouts, and artist inputs,
+   and retained `.mulgae/` history; never run a fresh `mulgae init` over an
+   already configured project. Exception: Config v5 files naming retired
+   providers (`kimi`, `cursor`, `codex`, `agy`) fail closed with
+   `config_provider_retired` (requiring authorized manual removal from
+   `.mulgae/config.yaml` followed by `mulgae init --refresh-local`), and public
+   reads or exports of direct or transitive retired-provider artifacts fail
+   closed with `retired_provider_artifact` while `mulgae clean` remains
+   operational. Native context and verified reads do not require
    initialization, a Haepari controller, or provider readiness. Live provider
    reviews require an existing private `HAEPARI_HOME` with `advisory-lock/v1`
    and a capacity-one `mulgae-review` resource whose hold policy covers the

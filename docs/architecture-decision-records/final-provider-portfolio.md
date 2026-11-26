@@ -3,7 +3,7 @@
 Status: Accepted
 
 Roadmap: [EPIC-004](../roadmap/README.md#epic-004-zcode-first-review-with-grok-recovery),
-[EPIC-017](../roadmap/README.md#epic-017-herdr-core-isolated-terminal-runtime-and-grok-migration)
+[EPIC-017](../roadmap/README.md#epic-017-herdr-core-terminal-runtime-and-grok-migration)
 
 ## Decision
 
@@ -37,7 +37,8 @@ mandatory non-live gates.
 
 ## Consequences
 
-Current command-result v25, doctor v9, heartbeat v6 and preflight v13 reflect
+Doctor v9, heartbeat v6, preflight v13, and command-result v25 (extended by
+current command-result v26 per [contracts](../specs/contracts.md)) reflect
 the two-family portfolio (`zcode`, `grok`) and reject `kimi`, `cursor`, `codex`,
 and `agy`. Codex-only credential profile mechanics (`default_credential_profile`,
 `credential_homes`, `roles.*.credential_profile`, and `heartbeat --credential-profile`)

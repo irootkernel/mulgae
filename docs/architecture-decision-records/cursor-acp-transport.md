@@ -4,7 +4,7 @@ Status: Deprecated (Retired; Cursor provider support has been removed from the a
 
 Roadmap: [EPIC-010](../roadmap/README.md#epic-010-cursor-acp-review-provider)
 
-> **Retirement note**: Cursor (`cursor`) has been retired from Mulgae's active provider portfolio. Config v5 files naming `cursor` fail closed with `config_provider_retired`, and public artifact reads referencing `cursor` fail closed with `retired_provider_artifact` (while `mulgae clean` can still inspect and delete them). Current contracts (`mulgae-command-result.v24`, `mulgae-doctor-result.v8`, `mulgae-provider-heartbeat-result.v5`, `mulgae-review-preflight.v12`) omit `cursor`; frozen historical schemas and examples retain their original bytes. Defense-in-depth Seatbelt credential denials for `~/.cursor` and `~/.config/cursor` remain active for other guarded providers.
+> **Retirement note**: Cursor (`cursor`) has been retired from Mulgae's active provider portfolio. Config v5 files naming `cursor` fail closed with `config_provider_retired`, and public artifact reads referencing `cursor` fail closed with `retired_provider_artifact` (while `mulgae clean` can still inspect and delete them). Contracts starting at Cursor retirement (`mulgae-command-result.v24`, `mulgae-doctor-result.v8`, `mulgae-provider-heartbeat-result.v5`, `mulgae-review-preflight.v12`, superseded by current versions in [contracts](../specs/contracts.md)) omit `cursor`; frozen historical schemas and examples retain their original bytes. Defense-in-depth Seatbelt credential denials for `~/.cursor` and `~/.config/cursor` remain active for other guarded providers.
 
 ## Problem
 

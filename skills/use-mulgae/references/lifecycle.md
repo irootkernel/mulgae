@@ -78,8 +78,14 @@ mulgae init --refresh-local --output json
 
 Refresh preserves `config.yaml`, atomically replaces only `local.yaml`, accepts
 machine-path overrides, and rejects project-policy options. Upgrading Mulgae
-preserves an existing valid Config v5 pair and retained `.mulgae/` history;
-never replace an existing configured pair with a fresh `mulgae init`. Config v1
+preserves an existing valid Config v5 pair (`zcode`/`grok`) and retained
+`.mulgae/` history; never replace an existing configured pair with a fresh
+`mulgae init`. Exception: Config v5 files naming retired providers (`kimi`,
+`cursor`, `codex`, `agy`) fail closed with `config_provider_retired` and require
+an authorized manual edit of `.mulgae/config.yaml` to remove retired providers
+and routes followed by `mulgae init --refresh-local`; public reads and exports
+of direct or transitive retired-provider artifacts fail closed with
+`retired_provider_artifact` while `mulgae clean` remains operational. Config v1
 is rejected; there is no automatic migration.
 
 ## Start or associate a review

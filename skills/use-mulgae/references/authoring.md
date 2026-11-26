@@ -56,15 +56,19 @@ overwrites an existing complete Config v5 pair.
 models, roles, artist inputs, timeouts, validation, resources, and CI policy.
 Edit it only when the user explicitly authorizes that policy change. The
 untracked, mode-`0600` `.mulgae/local.yaml` owns only the native home and
-provider executable and ZCode app-bundle paths. Upgrading
-Mulgae preserves existing valid Config v5 shared and machine-local files,
-including custom provider-role routing, provider timeouts,
+provider executable and ZCode app-bundle paths. Upgrading Mulgae preserves
+existing valid Config v5 shared and machine-local files for active providers
+(`zcode`, `grok`), including custom provider-role routing, provider timeouts,
 Grok/ZCode model and reasoning settings, and UI `artist` inputs, without
-running a fresh `mulgae init`. Prefer `mulgae init --refresh-local` over hand-editing
-ordinary discovered paths. Use only Config v5 fields demonstrated by current
-effective configuration, the paired embedded examples, and `mulgae help config`;
-Config v1 through v4 are unsupported. To migrate v4 deliberately, back up the
-private file, set both versions to 5 and remove shared
+running a fresh `mulgae init`. Exception: Config v5 files naming retired
+providers (`kimi`, `cursor`, `codex`, `agy`) fail closed with
+`config_provider_retired`, requiring authorized manual removal of the retired
+providers and routes from `.mulgae/config.yaml` followed by
+`mulgae init --refresh-local`. Prefer `mulgae init --refresh-local` over
+hand-editing ordinary discovered paths. Use only Config v5 fields demonstrated
+by current effective configuration, the paired embedded examples, and
+`mulgae help config`; Config v1 through v4 are unsupported. To migrate v4
+deliberately, back up the private file, set both versions to 5 and remove shared
 `execution.workspace_access`. No replacement setting or automatic migration
 exists.
 

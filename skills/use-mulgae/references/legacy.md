@@ -49,9 +49,13 @@ Never read a resource from an unbound server or upgrade an artifact in place.
 
 Historical committed publications, requirements assessments, rendered reports,
 redacted exports, and retained `failed_run_recovery` inventories remain readable
-without `HAEPARI_HOME` or a running Haepari controller. During `mulgae clean`,
-legacy coordination intent records with unknown local drain proof and current
-owned or borrowed runs with unverified local drain
+without `HAEPARI_HOME` or a running Haepari controller, except that artifacts
+with direct or transitive retired-provider lineage (`kimi`, `cursor`, `codex`,
+`agy`) fail closed on public reads and exports with `retired_provider_artifact`.
+`mulgae clean` can still inspect and delete retired-provider artifacts without
+exposing their content, subject to cleanup protection rules. During
+`mulgae clean`, legacy coordination intent records with unknown local drain
+proof and current owned or borrowed runs with unverified local drain
 (`haepari_local_drain_unverified`) remain protected from deletion alongside
 required composite ancestors and retained failed-recovery roots. Never delete
 `.mulgae/` directories manually to bypass cleanup protection.
