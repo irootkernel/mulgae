@@ -6,46 +6,60 @@ This file records concise shipped outcomes and the planned next stable release.
 
 ### Changed
 
-- Run ZCode reviews, structured extraction, qualification, and heartbeat through
-  an isolated `herdr-core` terminal with the `herdr-zcode` companion. Drain each
-  ZCode namespace's private socket directory after process teardown.
-- Admit the standard ZCode app bundle under macOS's root-owned `admin`-group
-  `/Applications` directory in mode `0775`.
-- Distinguish missing staged provider output, empty reports, and completion
-  marker failures in local runtime diagnostics.
-- Default new ZCode projects to `account:zai-individual-coding-plan/GLM-5.4`
-  and `max`, with independent overrides and source reporting in command-result
-  v26. Omitted fields in existing Config v5 files retain ZCode session settings.
-- Require pinned Go/Python toolchains for development and VM qualification,
-  migrate VM requests to v2, and automatically format Go files before verification.
-- Migrate Grok (`1.0.89`+) review, structured extraction, qualification, and heartbeat from legacy ACP to a reusable isolated `herdr-core` terminal runtime (`PaneTTY`, disposable `HOME`/`GROK_HOME` with minimal `requirements.toml`, purpose-scoped tools with the five-control `B-1` Seatbelt Bash gate on index/commit scopes only, read-only staged prompts with completion nonces, post-`ESRCH` staged output validation published under `result_transport: "stdout"`, graph-owned `herdr-core` lifecycle teardown, shared control-plane boundary denials across all providers, and offline doctor `herdr-core` readiness checks) without starting `herdr-core` for offline checks.
-- Converge the active provider inventory to two families (`zcode`, `grok`), reject Config v5 `providers.cursor`, `providers.codex`, and `providers.agy` and their role assignments fail-closed with `config_provider_retired`, fail public reads/exports of historical and live retired-provider artifacts (`kimi`, `cursor`, `codex`, `agy`) with `retired_provider_artifact` (while keeping `mulgae clean` operational), remove Codex-only credential profile fields (`default_credential_profile`, `credential_homes`, `roles.*.credential_profile`, and `heartbeat --credential-profile`), and publish `mulgae-doctor-result.v9`, `mulgae-provider-heartbeat-result.v6`, and `mulgae-review-preflight.v13` while preserving frozen historical schema/example pairs.
-- Strengthen live-source evidence drift handling in both requirements and non-requirements review modes so real drift on admitted paths, root/index revalidation, `git cat-file`, and post-open TOCTOU reopens fails closed (capturing security-rejected markers on `live_source_unsafe`), while separating untrusted provider citation faults (absent non-admitted paths, invalid/excluded paths, and non-regular non-admitted workspace paths on initial open) into bounded failures (`invalid_assessment` or `unrepairable_evidence_claim`).
-- Propagate originating security `RuntimeDiagnosticCause` values (`provider_ownership_violation`, `live_source_unsafe`, `provider_packet_security_rejected`, `diagnostic_security_rejected`, `workspace_revalidation_failed`, `provider_output_staging_violation`, and `provider_process_group_cleanup_failed`) through coordinator diagnostic events and attempt status without altering public `security_violation` reason codes.
-- Omit repository-wide `reads` from `002-extract` prompts via compact `review:live-extract-target` v1 metadata (while keeping the full admitted read set on `001-initial` and `repair`) and align `extract-provider-review.v1.txt`, `requirements.v1.txt`, and `reviewer-guide.v1.txt` so initial reports include exact verbatim target excerpts and structured extraction operates as pure transcription without re-reading source or fabricating `findings: []` (plain-text refusal in non-requirements mode; omitted top-level `findings` key in `--requirements` mode retaining verified requirements and keeping `reports_only`).
-- Compact `001-initial` and `repair` read plans losslessly in `review:live-read-plan` v2 (HTML escaping disabled, no byte or item ceiling) by keeping changed candidate reads and non-allowlisted or template-mismatch paths verbatim in `reads` while grouping remaining positive-allowlist supporting and whole-tree paths into side-scoped `supporting_reads` templates (`native_path_template` / `git_command_template`), leaving in-memory `execution.Reads()` and `review:live-extract-target` v1 unchanged; align `common.v1.txt`, the AGY isolated agent policy (`git_command` and guarded `supporting_reads` expansion), and `make test-agy` (adding the seventh `templated` native command control).
-- Isolate ordinary per-item requirements validation and pure bounded provider citation faults to the offending `requirement_id` (`invalid_assessment`) while preserving valid sibling requirements, keeping whole-section rejection for duplicate/foreign/wrong-owner/non-object rows, running `ReviewValidator.Validate` unconditionally on omitted-`findings` responses with `nil` candidate fallback, applying Option A `assessmentPending` scheduling and monotone `initial -> extract` merging with deterministic input-order `NormalizedRequirementsOutput`, and keeping findings extraction strictly all-or-nothing.
-- Share one qualification probe across equivalent ZCode role routes.
-  Partition qualification on the companion package, terminal runtime,
-  desktop/catalog receipt, model, or reasoning effort.
-- Bump the qualification readiness probe fixture to `current-qualification-fixture-v4`, preserving line 1 verbatim and adding neutral synthetic-test-identifier framing before `root`/`link`/`role` while retaining exact `{"root","link","role"}` JSON and nonce/link verification with four-provider (`zcode`, `grok`, `codex`, `agy`) and `mulgae heartbeat` test coverage.
-- Replace the review coordinator's full-wave barrier between initial and follow-up invocations with a single-goroutine batched FIFO event loop that retains the initial shared start gate after `PrepareInitial`, drains ready completions into canonical-role-order commit batches, admits per-role follow-ups (`002-extract`, `retry`, `repair`) immediately in FIFO order while slower peers remain in `001-initial`, enforces run-wide invocation ceilings and global ordinal tracking, and drains all in-flight invocations before stop/deadline commits and worker shutdown while preserving deterministic `RoleSummaries`, `Findings`, `Evidence`, `Outcomes`, `RunState`, and per-role trace projections.
-
-### Removed
-
-- Remove Cursor (`cursor`), Codex (`codex`), and AGY (`agy`) review provider support across runtime adapters, qualification, discovery, `init` (`--cursor-executable`, `--codex-*`, `--agy-*`, and `--providers cursor|codex|agy`), `heartbeat`, `doctor`, `providers`, VM qualification inputs, documentation, and live gates (`make test-cursor`, `make test-agy`, `make test-e2e-opt-in`), while retaining Codex as an external MCP client (`make test-mcp-clients`, `make test-mcp-requirements-clients`) and retaining defense-in-depth `~/.cursor`/`~/.config/cursor`/`~/.codex`/`~/.gemini` credential-root denials, `.cursor`/`.cursorrules` content detection, Grok `[compat.cursor]` lockdown, and `cursor_auth_token` secret-key refusal.
+- Migrate ZCode reviews, extraction, qualification, and heartbeat to isolated `herdr-core`
+  terminals requiring `herdr-zcode` 0.2.0+ and Desktop 3.18.2+ (verified 4.0.0, Keychain).
+- Migrate Grok 1.0.89+ reviews, extraction, qualification, and heartbeat from ACP to isolated
+  `herdr-core` terminals requiring `herdr-core`, disposable homes, and Git Bash gating.
+- Enforce shared `herdr-core` control-plane denials, shell-free workspace/`artist` ZCode
+  lanes, private socket/namespace drain, and offline doctor checks without starting daemons.
+- Admit standard macOS ZCode bundles under root-owned `admin`-group `/Applications` in mode
+  `0775` while keeping non-standard writable parent directories rejected.
+- Default new ZCode projects to `account:zai-individual-coding-plan/GLM-5.4` and `max` with
+  overrides and command-result v26 provenance; existing Config v5 omissions keep session values.
+- Converge active providers to `zcode` and `grok` (`zcode` preferred) and publish doctor v9,
+  provider-heartbeat v6, and review-preflight v13 while keeping frozen historical schemas.
+- Fail closed on retired Config v5 providers (`cursor`, `codex`, `agy`) with
+  `config_provider_retired`, requiring manual removal and `mulgae init --refresh-local`.
+- Fail public reads and exports of retired-provider artifacts (`kimi`, `cursor`, `codex`,
+  `agy`) with `retired_provider_artifact` while keeping `mulgae clean` operational.
+- Share one qualification probe across equivalent ZCode role routes, partitioned by companion
+  package, terminal runtime, desktop/catalog receipt, model, or reasoning effort.
+- Update the readiness probe fixture to `current-qualification-fixture-v4` with neutral
+  synthetic-identifier framing while keeping line 1 and exact JSON verification unchanged.
+- Omit repository-wide reads from `002-extract` prompts via `review:live-extract-target` v1
+  so extraction transcribes verbatim excerpts without re-reading or fabricating `findings: []`.
+- Compact initial and repair read plans losslessly in `review:live-read-plan` v2 with
+  side-scoped `supporting_reads` templates and no byte or item ceiling.
+- Isolate per-item requirements validation and pure citation faults to `invalid_assessment`,
+  preserving valid siblings while keeping structural rejections and findings all-or-nothing.
+- Fail closed on live-source drift (`live_source_unsafe`) across admitted paths and reopens
+  while keeping untrusted citation faults bounded as `invalid_assessment` or unrepairable.
+- Propagate security diagnostic causes to coordinator events and attempt status without
+  changing `security_violation` reasons, and distinguish staged-output failure diagnostics.
+- Replace the coordinator wave barrier with a batched FIFO loop so completed roles start
+  follow-ups immediately while preserving deterministic ordering, ceilings, and clean drain.
+- Require pinned Go/Python toolchains for development and VM qualification, migrate VM
+  requests to v2 (requiring v1 regeneration), and auto-format Go files before verification.
 
 ### Fixed
 
-- Tell ZCode to write the Markdown role report and its completion marker to
-  the same staged file.
-- Preserve source line endings when transcribing text citations from role
-  reports into requirements assessments.
-- Restore ZCode 3.18.2 reviews for accounts protected by macOS Keychain.
-- Accept optional Grok CLI release-channel version tags (such as `[stable]` or `[beta]`) and register the synthetic `grok-logic` namespace so `mulgae heartbeat --provider grok` works even when no review role uses Grok.
-- Restore timeout publication consistency so provider timeouts project `AttemptTimedOut` paired with `FailureTimeout` (preserving partial-timeout publication of peer reports and requirements), enclosing run deadlines during optional extraction complete the role as `AttemptSucceeded` with its accepted report intact and project `RunCompleted` when all roles succeeded, and never-started roles cancel cleanly instead of failing with illegal state transitions.
-- Enforce exact-match closed Mulgae-owned key sets with a complete tree pre-pass and deterministic protected-key precedence across all five requirements wire objects (`requirements`, `assessment`, `evidence`, `current`, `visual`), keeping ordinary unknown keys bounded as `invalid_assessment` and allowing `visual.sha256`.
-- Emit complete single-pass parse/validation diagnostics, invocation status states, raw stdout/stderr capture, and `pendingExtraction`/`pending` cleanup across initial, repair, extraction, fallback, and security-rejected paths in requirements mode without double-capturing streams or overflowing bounded `candidate.*.json` members (omitting `candidate.*.json` when the findings projection exceeds 8 MiB while keeping full unbounded output in `stdout.raw`).
+- Accept optional Grok CLI release-channel version tags (such as `[stable]` or `[beta]`) and
+  register synthetic `grok-logic`/`zcode-logic` namespaces so unassigned heartbeats succeed.
+- Preserve peer reports, accepted reports during extraction deadlines, and clean never-started
+  cancellation across provider timeouts and run deadlines without illegal state transitions.
+- Enforce exact closed Mulgae-owned key sets across all five requirements wire objects while
+  allowing `visual.sha256` and keeping ordinary unknown keys bounded as `invalid_assessment`.
+- Emit complete single-pass requirements diagnostics and raw stream capture without double
+  capture, omitting >8 MiB candidate projections while keeping raw output unbounded.
+- Preserve source line endings when transcribing text citations from role reports into
+  requirements assessments.
+
+### Removed
+
+- Remove Cursor (`cursor`), Codex (`codex`), and AGY (`agy`) review providers, CLI flags, VM
+  inputs, and live gates while keeping Codex MCP client support and defense-in-depth denials.
+- Remove Codex-only credential profile fields (`default_credential_profile`,
+  `credential_homes`, `roles.*.credential_profile`) and `heartbeat --credential-profile`.
 
 ## v0.1.27 - 2026-11-10
 
