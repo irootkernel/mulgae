@@ -168,7 +168,7 @@ func TestRetiredProviderArtifactCLIReadsAndExportsFailClosedWithCodeAndCleanSucc
 				envelope.Reasons[0].Code != "retired_provider_artifact" || envelope.Reasons[0].Retryable {
 				t.Fatalf("reasons = %+v, want single non-retryable artifact retired_provider_artifact", envelope.Reasons)
 			}
-			if !strings.Contains(envelope.Reasons[0].Message, "mulgae clean --dry-run") ||
+			if !strings.Contains(envelope.Reasons[0].Message, "mulgae clean --all --dry-run") ||
 				strings.Contains(envelope.Reasons[0].Message, "mulgae doctor") {
 				t.Fatalf("unexpected message hint: %q", envelope.Reasons[0].Message)
 			}
@@ -180,7 +180,7 @@ func TestRetiredProviderArtifactCLIReadsAndExportsFailClosedWithCodeAndCleanSucc
 			}
 			stderr := string(result.Stderr())
 			if !strings.Contains(stderr, "code: retired_provider_artifact") ||
-				!strings.Contains(stderr, "hint: run mulgae clean --dry-run") ||
+				!strings.Contains(stderr, "hint: run mulgae clean --all --dry-run") ||
 				strings.Contains(stderr, "mulgae doctor") {
 				t.Fatalf("human stderr = %q, want retired_provider_artifact code and clean hint", stderr)
 			}
@@ -194,7 +194,7 @@ func TestRetiredProviderArtifactCLIReadsAndExportsFailClosedWithCodeAndCleanSucc
 		}
 		stderr := string(result.Stderr())
 		if !strings.Contains(stderr, "code: retired_provider_artifact") ||
-			!strings.Contains(stderr, "hint: run mulgae clean --dry-run") {
+			!strings.Contains(stderr, "hint: run mulgae clean --all --dry-run") {
 			t.Fatalf("export --run latest stderr = %q, want retired_provider_artifact", stderr)
 		}
 	})
@@ -206,10 +206,46 @@ func TestRetiredProviderArtifactCLIReadsAndExportsFailClosedWithCodeAndCleanSucc
 	}
 
 	t.Run("clean/dry-run-and-apply", func(t *testing.T) {
-		dryRun := application.Run(context.Background(), []string{"clean", "--dry-run", "--all", "--output", "json"}, projectPath)
+		retiredRunDir := filepath.Join(artifactPath, retiredCase.SessionID, retiredCase.RunID)
+		if _, err := os.Stat(retiredRunDir); err != nil {
+			t.Fatalf("retired run directory absent before clean: %v", err)
+		}
+		type cleanEnvelope struct {
+			Result struct {
+				Kind             string `json:"kind"`
+				DryRun           bool   `json:"dry_run"`
+				AffectedRunCount int    `json:"affected_run_count"`
+				AffectedBytes    int64  `json:"affected_bytes"`
+			} `json:"result"`
+		}
+
+		dryRun := application.Run(context.Background(), []string{"clean", "--all", "--dry-run", "--output", "json"}, projectPath)
 		assertFoundationEnvelope(t, fixture, dryRun, app.ExitCodeSuccess)
+		var dryPayload cleanEnvelope
+		if err := json.Unmarshal(dryRun.Stdout(), &dryPayload); err != nil {
+			t.Fatalf("unmarshal dry-run clean envelope: %v", err)
+		}
+		if dryPayload.Result.Kind != "clean_completed" || !dryPayload.Result.DryRun ||
+			dryPayload.Result.AffectedRunCount < 1 || dryPayload.Result.AffectedBytes <= 0 {
+			t.Fatalf("dry-run clean result = %+v, want dry_run=true affected_run_count>=1 affected_bytes>0", dryPayload.Result)
+		}
+		if _, err := os.Stat(retiredRunDir); err != nil {
+			t.Fatalf("dry-run removed retired run directory: %v", err)
+		}
+
 		apply := application.Run(context.Background(), []string{"clean", "--all", "--output", "json"}, projectPath)
 		assertFoundationEnvelope(t, fixture, apply, app.ExitCodeSuccess)
+		var applyPayload cleanEnvelope
+		if err := json.Unmarshal(apply.Stdout(), &applyPayload); err != nil {
+			t.Fatalf("unmarshal apply clean envelope: %v", err)
+		}
+		if applyPayload.Result.Kind != "clean_completed" || applyPayload.Result.DryRun ||
+			applyPayload.Result.AffectedRunCount < 1 || applyPayload.Result.AffectedBytes <= 0 {
+			t.Fatalf("apply clean result = %+v, want dry_run=false affected_run_count>=1 affected_bytes>0", applyPayload.Result)
+		}
+		if _, err := os.Stat(retiredRunDir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("retired run directory still present after clean --all: %v", err)
+		}
 	})
 }
 
@@ -265,7 +301,7 @@ func TestRetiredProviderArtifactCLIFailurePrecedenceAndWrapping(t *testing.T) {
 					got.class, got.code, got.exit, test.wantClass, test.wantCode, test.wantExit)
 			}
 			if test.wantCode == "retired_provider_artifact" {
-				if got.recommendedNextCommand != "mulgae clean --dry-run" || !got.hasRetryable || got.retryable {
+				if got.recommendedNextCommand != "mulgae clean --all --dry-run" || !got.hasRetryable || got.retryable {
 					t.Fatalf("retired projection metadata = %+v", got)
 				}
 			}

@@ -1567,11 +1567,11 @@ func executionFailureFor(command app.CommandName, err error, fallback domain.Fai
 	case domain.FailureArtifact:
 		if appquery.IsRetiredProviderArtifact(err) {
 			failure.code = appquery.RetiredProviderArtifactReason
-			failure.message = "Artifacts referencing a retired provider cannot be read or exported; hint: run mulgae clean --dry-run."
+			failure.message = "Artifacts referencing a retired provider cannot be read or exported; hint: run mulgae clean --all --dry-run."
 			failure.humanMessage = "mulgae: artifact references a retired provider and cannot be read or exported"
 			failure.retryable = false
 			failure.hasRetryable = true
-			failure.recommendedNextCommand = "mulgae clean --dry-run"
+			failure.recommendedNextCommand = "mulgae clean --all --dry-run"
 		} else {
 			failure.code = "artifact_unavailable"
 		}

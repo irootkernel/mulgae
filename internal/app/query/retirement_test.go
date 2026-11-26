@@ -1,16 +1,21 @@
 package query
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"testing"
 
+	"github.com/irootkernel/mulgae/internal/app/compositesupport"
 	"github.com/irootkernel/mulgae/internal/app/evidence"
+	"github.com/irootkernel/mulgae/internal/app/recovery"
 	"github.com/irootkernel/mulgae/internal/domain"
 	"github.com/irootkernel/mulgae/internal/ports"
+	"github.com/irootkernel/mulgae/internal/testsupport/historical"
 )
 
 func liveZCodeRetirementFixture(t *testing.T) (finalDTO, manifestDTO) {
@@ -235,4 +240,222 @@ func (context *readContext) adoptReview(run ports.PublicationRun, review Committ
 	context.byRun[run.RunID().String()] = node
 	context.order = append(context.order, node)
 	return node
+}
+
+func historicalCaseByID(t *testing.T, id string) historical.Case {
+	t.Helper()
+	corpus, err := historical.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range corpus.Cases {
+		if c.ID == id {
+			return c
+		}
+	}
+	t.Fatalf("historical corpus fixture %q is absent", id)
+	return historical.Case{}
+}
+
+func TestReadRunStatusRejectsTransitiveAndCompositeRetiredLineage(t *testing.T) {
+	validator := mustSharedQueryTestValidator(t)
+
+	t.Run("active child of retired parent", func(t *testing.T) {
+		c := historicalCaseByID(t, "rerun-exact")
+		for _, family := range []string{"kimi", "cursor", "codex", "agy"} {
+			t.Run(family, func(t *testing.T) {
+				store, childRun := historicalQueryStore(t, c)
+				childSnapshot := store.snapshotsByRun[c.RunID]
+				childFinal, err := decodeFinalDTO(childSnapshot.Final().Bytes())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if childFinal.ImmutableLineage.SourceRunID == nil {
+					t.Fatal("rerun-exact fixture omitted SourceRunID")
+				}
+				parentRunID := *childFinal.ImmutableLineage.SourceRunID
+				parentRun, ok := store.resolutionsByRun[parentRunID]
+				if !ok {
+					t.Fatalf("rerun-exact parent run %s absent from store", parentRunID)
+				}
+				parentSnapshot := store.snapshotsByRun[parentRunID]
+				parentFinal, err := decodeFinalDTO(parentSnapshot.Final().Bytes())
+				if err != nil {
+					t.Fatal(err)
+				}
+				parentManifest, err := decodeManifestDTO(parentSnapshot.Manifest().Bytes())
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Retire the parent run's provider identity while keeping the child run itself active.
+				for i := range parentFinal.RoleOutcomes {
+					if parentFinal.RoleOutcomes[i].ProviderInstance != nil {
+						retired := family + "-logic"
+						parentFinal.RoleOutcomes[i].ProviderInstance = &retired
+					}
+				}
+				for i := range parentManifest.Attempts {
+					parentManifest.Attempts[i].ProviderInstance = family + "-logic"
+				}
+				for i := range parentManifest.RoleReports {
+					parentManifest.RoleReports[i].ProviderInstance = family + "-logic"
+				}
+				parentFinalBytes, err := json.Marshal(parentFinal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parentFinalID, err := ports.NewFinalReviewIdentity(
+					parentSnapshot.Final().Identity().ReviewID(),
+					parentSnapshot.Final().Identity().Path(),
+					querySHA(parentFinalBytes),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parentFinalArt, err := ports.NewFinalReviewArtifact(parentFinalID, parentFinalBytes)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parentManifest.FinalReview.SHA256 = parentFinalID.SHA256()
+				parentManifest.RecoveryJournal.ExpectedFinal.SHA256 = parentFinalID.SHA256()
+				parentManifestBytes, err := json.Marshal(parentManifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				retiredParentSnap, err := ports.NewCommittedPublicationSnapshot(
+					parentFinalArt,
+					mustQueryArtifact(t, parentSnapshot.Manifest().Path(), parentManifestBytes),
+					parentSnapshot.LineageEdge(),
+					parentSnapshot.Epoch(),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				store.snapshotsByRun[parentRunID] = retiredParentSnap
+				store.observationsByRun[parentRunID] = queryP2Observation(
+					t, parentRun, retiredParentSnap, domain.JournalCompleted, domain.ExitCommittedCIRejected, 1,
+				)
+
+				service := mustQueryService(t, store, validator, nil)
+				// Confirm verifySnapshot alone admits the active-provider child,
+				// so rejection comes from statusWithin's committedRetired walk.
+				rc := service.newReadContext()
+				node, err := rc.ensureRun(context.Background(), childRun, readStatusStage)
+				if err != nil {
+					t.Fatalf("ensureRun: %v", err)
+				}
+				if err := rc.verifySnapshot(context.Background(), node); err != nil {
+					t.Fatalf("verifySnapshot unexpectedly rejected active child: %v", err)
+				}
+
+				_, statusErr := service.ReadRunStatus(context.Background(), childRun)
+				var failure *domain.Failure
+				if !errors.As(statusErr, &failure) || failure.Class() != domain.FailureArtifact ||
+					failure.Reason() != RetiredProviderArtifactReason {
+					t.Fatalf("%s child ReadRunStatus = %#v, want FailureArtifact(%q)", family, statusErr, RetiredProviderArtifactReason)
+				}
+				if store.resolveCalls == 0 {
+					t.Fatal("ReadRunStatus did not resolve parent lineage")
+				}
+			})
+		}
+	})
+
+	t.Run("composite with retired source lineage", func(t *testing.T) {
+		mixedCase := historicalCaseByID(t, "composite-mixed-v1")
+		mixedStore, mixedRun := historicalQueryStore(t, mixedCase)
+		mixedService := mustQueryService(t, mixedStore, validator, nil)
+		rc := mixedService.newReadContext()
+		node, err := rc.ensureRun(context.Background(), mixedRun, readStatusStage)
+		if err != nil {
+			t.Fatalf("ensureRun: %v", err)
+		}
+		if err := rc.verifySnapshot(context.Background(), node); err != nil {
+			t.Fatalf("verifySnapshot unexpectedly rejected composite-mixed-v1: %v", err)
+		}
+		_, statusErr := mixedService.ReadRunStatus(context.Background(), mixedRun)
+		var failure *domain.Failure
+		if !errors.As(statusErr, &failure) || failure.Class() != domain.FailureArtifact ||
+			failure.Reason() != RetiredProviderArtifactReason {
+			t.Fatalf("composite-mixed-v1 ReadRunStatus = %#v, want FailureArtifact(%q)", statusErr, RetiredProviderArtifactReason)
+		}
+
+		copiedCase := historicalCaseByID(t, "composite-copied-v1")
+		copiedStore, copiedRun := historicalQueryStore(t, copiedCase)
+		snapshot := copiedStore.snapshotsByRun[copiedCase.RunID]
+		identity := func(s string) string { return s }
+		entries := queryRuntimeFixtureEntries(t, snapshot, copiedStore.auxiliaryArtifacts, identity, bytes.Clone)
+		prefix := copiedCase.SessionID + "/" + copiedCase.RunID + "/"
+		path := prefix + compositesupport.DocumentPath
+		var doc compositesupport.Document
+		if err := json.Unmarshal(entries[path].bytes, &doc); err != nil {
+			t.Fatal(err)
+		}
+		doc.Sources[0].ProviderIdentities = append(doc.Sources[0].ProviderIdentities, "codex-retired")
+		sort.Strings(doc.Sources[0].ProviderIdentities)
+		raw, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[path].bytes = append(raw, '\n')
+		retainedQueryRebind(t, entries, prefix)
+		updated, observation, artifacts := retainedQuerySnapshot(t, copiedRun, snapshot, copiedStore.auxiliaryArtifacts, entries, domain.OperationalExitCode(copiedCase.Expected.Exit))
+		copiedStore.snapshotsByRun[copiedCase.RunID] = updated
+		copiedStore.observationsByRun[copiedCase.RunID] = observation
+		copiedStore.auxiliaryArtifacts = artifacts
+		copiedService := mustQueryService(t, copiedStore, validator, nil)
+		rc2 := copiedService.newReadContext()
+		node2, err := rc2.ensureRun(context.Background(), copiedRun, readStatusStage)
+		if err != nil {
+			t.Fatalf("ensureRun: %v", err)
+		}
+		if err := rc2.verifySnapshot(context.Background(), node2); err != nil {
+			t.Fatalf("verifySnapshot unexpectedly rejected active-role composite: %v", err)
+		}
+		_, copiedStatusErr := copiedService.ReadRunStatus(context.Background(), copiedRun)
+		if !errors.As(copiedStatusErr, &failure) || failure.Class() != domain.FailureArtifact ||
+			failure.Reason() != RetiredProviderArtifactReason {
+			t.Fatalf("active-role composite ReadRunStatus = %#v, want FailureArtifact(%q)", copiedStatusErr, RetiredProviderArtifactReason)
+		}
+	})
+}
+
+func TestReadRunStatusAllowsActiveRunWithUnavailableFailedRunRecoverySource(t *testing.T) {
+	c := historicalCaseByID(t, "recovery-child-v2")
+	store, childRun := historicalQueryStore(t, c)
+	childSnapshot := store.snapshotsByRun[c.RunID]
+	childFinal, err := decodeFinalDTO(childSnapshot.Final().Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childFinal.ImmutableLineage.SourceRunID == nil || childFinal.ImmutableLineage.SourceKind != "failed_run_recovery" {
+		t.Fatalf("recovery-child-v2 lineage = %+v, want failed_run_recovery source", childFinal.ImmutableLineage)
+	}
+	sourceRunID := *childFinal.ImmutableLineage.SourceRunID
+	sourceRun, ok := store.resolutionsByRun[sourceRunID]
+	if !ok {
+		t.Fatalf("recovery-child-v2 source run %s absent from resolutionsByRun", sourceRunID)
+	}
+	// Remove the source run's recovery manifest while keeping the run resolvable
+	// so recovery.Read returns recovery.ErrUnavailable.
+	recoveryPath, err := recovery.ManifestPath(sourceRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, existed := store.auxiliaryArtifacts[recoveryPath.String()]; !existed {
+		t.Fatalf("expected recovery manifest at %s in fixture", recoveryPath.String())
+	}
+	delete(store.auxiliaryArtifacts, recoveryPath.String())
+
+	service := mustQueryService(t, store, mustSharedQueryTestValidator(t), nil)
+	status, err := service.ReadRunStatus(context.Background(), childRun)
+	if err != nil {
+		t.Fatalf("ReadRunStatus with unavailable failed_run_recovery source failed: %v", err)
+	}
+	if status.PublicationStatus() != domain.PublicationCommitted {
+		t.Fatalf("publication status = %s, want committed", status.PublicationStatus())
+	}
+	if store.resolveCalls == 0 || store.auxiliaryReadsByRun[sourceRunID] == 0 {
+		t.Fatalf("expected recovery lineage probe: resolveCalls=%d sourceAuxReads=%d", store.resolveCalls, store.auxiliaryReadsByRun[sourceRunID])
+	}
 }

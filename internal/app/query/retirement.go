@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/irootkernel/mulgae/internal/app/recovery"
@@ -200,6 +201,9 @@ func (context *readContext) sourceRetired(ctx context.Context, root ports.Anchor
 	if kind == "failed_run_recovery" {
 		snapshot, err := recovery.Read(ctx, context.service.store, context.service.validator, run, context.service.maxReadBytes)
 		if err != nil {
+			if errors.Is(err, recovery.ErrUnavailable) {
+				return false, nil
+			}
 			return false, err
 		}
 		return context.recoveryRetired(ctx, run, snapshot)
