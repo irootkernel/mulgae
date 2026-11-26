@@ -441,12 +441,14 @@ def run(argv: list[str] | None = None) -> int:
         raise Refusal("host submission is forbidden inside a managed guest or parent job context")
 
     repo_root = Path(__file__).resolve().parents[2]
+    toolchain_source_root = repo_root
     if args.prepared_dir:
         repo_root = Path(args.prepared_dir)
         if not repo_root.is_absolute() or repo_root.resolve() != repo_root:
             raise Refusal("prepared directory must be an absolute physical path")
         if not args.config:
             args.config = str(repo_root / "project.json")
+        toolchain_source_root = repo_root / "source"
     if args.config:
         cfg_path = Path(args.config).resolve()
         config = load_json_file(cfg_path, "project config")
@@ -481,10 +483,20 @@ def run(argv: list[str] | None = None) -> int:
         raise Refusal("manual mode requires selecting exactly one suite")
 
     validated_request = validate_execution_request(
-        raw_request, repo_root, selected[0][0], selected[0][1]
+        raw_request,
+        repo_root,
+        selected[0][0],
+        selected[0][1],
+        toolchain_source_root=toolchain_source_root,
     )
     for suite_name, suite_cfg in selected[1:]:
-        validate_execution_request(raw_request, repo_root, suite_name, suite_cfg)
+        validate_execution_request(
+            raw_request,
+            repo_root,
+            suite_name,
+            suite_cfg,
+            toolchain_source_root=toolchain_source_root,
+        )
 
     if args.prepared_dir:
         prepared = verify_prepared_candidate(repo_root, validated_request)

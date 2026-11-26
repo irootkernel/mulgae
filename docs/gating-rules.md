@@ -60,13 +60,15 @@ access.
   identities, invalid completion nonces, sibling data reads and hard links,
   and protected socket access fail closed. Cancellation and deadlines retain
   their typed cause.
-- **Procedure:** Use a fresh mode-`0700` directory under the mounted writable
-  `/Volumes/RootKernel/tmp`, or the normal system temporary directory when that
-  volume is unavailable. Before changing `HOME`, export
-  `MULGAE_GO_EXECUTABLE="$(./dev path go)"` and preserve the existing module
-  cache with `GOMODCACHE="$(./dev go env GOMODCACHE)"`. Keep `HOME`, `TMPDIR`,
-  and `GOCACHE` beneath the gate root, and set `GOPROXY=off` and `GOSUMDB=off`.
-  On native Apple Silicon macOS, run:
+- **Procedure:** Create a fresh mode-`0700` gate root beneath the private
+  per-user temporary directory (`gate="$(mktemp -d "${TMPDIR%/}/g2.XXXXXX")"`
+  and `chmod 0700 "$gate"` on macOS, where ancestors are non-`0o022`), avoiding
+  group-writable parents such as `/Volumes/RootKernel/tmp`. Before changing
+  `HOME`, export `MULGAE_GO_EXECUTABLE="$(./dev path go)"` and preserve the
+  existing module cache with `GOMODCACHE="$(./dev go env GOMODCACHE)"`. Place
+  short mode-`0700` subdirectories `HOME="$gate/h"`, `TMPDIR="$gate/t"`, and
+  `GOCACHE="$gate/c"` beneath the gate root, and set `GOPROXY=off` and
+  `GOSUMDB=off`. On native Apple Silicon macOS, run:
 
   ```sh
   ./dev go test -v -count=1 ./internal/adapters/providercli -run '^(TestZCodeTerminalDriverOffline|TestZCodeTerminalProjectionBindsAndDrainsIndependentLeases|TestZCodeTerminalRunPreparationInterruptionProjection|TestLiveExecutionGuidePlanAndClosedGrokPermissions|TestGrokCredentialProjectionRejectsNonPrivateAuth|TestGrokRegistryLiveReviewExtractionAndLabelScopedDrain)$'

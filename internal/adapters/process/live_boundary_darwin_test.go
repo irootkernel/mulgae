@@ -347,15 +347,15 @@ func TestLiveBoundaryDeniesProtectedUnixSockets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, credentials, namespace := filepath.Join(base, "source"), filepath.Join(base, "credentials"), filepath.Join(base, "invocation")
-	runtimeTemp := filepath.Join(base, "runtime")
+	source, credentials, namespace := filepath.Join(base, "s"), filepath.Join(base, "c"), filepath.Join(base, "i")
+	runtimeTemp := filepath.Join(base, "r")
 	for _, path := range []string{source, credentials, namespace, runtimeTemp} {
 		if err := os.Mkdir(path, 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, root := range []string{source, credentials, namespace, runtimeTemp} {
-		path := filepath.Join(root, "service.sock")
+		path := filepath.Join(root, "a.s")
 		listener, err := net.Listen("unix", path)
 		if err != nil {
 			t.Fatal(err)
@@ -363,7 +363,7 @@ func TestLiveBoundaryDeniesProtectedUnixSockets(t *testing.T) {
 		defer listener.Close()
 		paths := []string{path}
 		if root != namespace && root != runtimeTemp {
-			alias := filepath.Join(namespace, filepath.Base(root)+"-alias.sock")
+			alias := filepath.Join(namespace, filepath.Base(root)+"-a.s")
 			if err := os.Symlink(path, alias); err != nil {
 				t.Fatal(err)
 			}

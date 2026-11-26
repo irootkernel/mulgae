@@ -40,7 +40,7 @@ def prepare(root: Path, output: Path, commit: str, go: str, reuse: Path | None =
         production = (name in {"go.mod", "go.sum", "main.go", "Makefile", "dev", "tools/toolchains.env", "tools/mise.toml"}
                       or name.startswith("assets/") and not name.endswith("_test.go")
                       or name.startswith("internal/") and
-                      (name.endswith(".go") and (not name.endswith("_test.go") or name.startswith(("internal/adapters/providercli/", "internal/mcpclientcheck/")))
+                      (name.endswith(".go") and (not name.endswith("_test.go") or name.startswith(("internal/adapters/herdr/", "internal/adapters/providercli/", "internal/mcpclientcheck/")))
                        or name.startswith("internal/builtin/assets/")))
         if not production:
             continue
@@ -55,7 +55,7 @@ def prepare(root: Path, output: Path, commit: str, go: str, reuse: Path | None =
         production_hashes[name] = "sha256:"+hashlib.sha256(regular_bytes(destination)).hexdigest()
 
     # The test overlay is deliberately separate from committed production input.
-    overlay = [str(p.relative_to(root)) for p in (root/"test/e2e").glob("*.go")]
+    overlay = [p.relative_to(root).as_posix() for p in (root/"test/e2e").rglob("*.go") if not p.is_dir()]
     overlay += [str(p.relative_to(root)) for p in (root/"test/vm").glob("*")
                 if p.is_file() and p.suffix in {".py", ".sh", ".md"}]
     overlay.append("Makefile")

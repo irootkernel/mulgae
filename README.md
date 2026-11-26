@@ -290,8 +290,12 @@ mulgae config --mode provenance
 
 `--refresh-local` preserves `.mulgae/config.yaml` and atomically replaces only
 the admitted local file. It accepts machine-path overrides but rejects project
-policy options. Earlier config versions are not migrated or read: back them up,
-remove the old private configuration, and initialize Config v5 deliberately.
+policy options. Config v5 files naming retired providers (`kimi`, `cursor`,
+`codex`, `agy`) fail closed with `config_provider_retired`; remove those
+providers and role assignments manually from `.mulgae/config.yaml`, then run
+`mulgae init --refresh-local`. Earlier config versions are not migrated or read:
+back them up, remove the old private configuration, and initialize Config v5
+deliberately.
 
 Every review requires exactly one target:
 
@@ -315,7 +319,10 @@ excluded from candidate discovery and protected by the native execution boundary
 
 `--dirty`, `--patch`, `--stdin`, `followup`, `delta`, `rerun`, `compose` and
 capture-bound request guards are retired and rejected before providers run.
-Historical artifacts remain supported by verified readers and exports.
+Historical artifacts from active providers remain supported by verified readers
+and exports, while artifacts with direct or transitive retired-provider lineage
+(`kimi`, `cursor`, `codex`, `agy`) fail closed on public reads and exports with
+`retired_provider_artifact` (`mulgae clean` remains operational).
 
 Use `mulgae version --json` and workflow `--output json` for automation.
 From the intended root, obtain `mulgae context --output json` and compare its
@@ -726,7 +733,10 @@ proof of a clean review. An allocated failed run may have no durable status;
 returned identity and verify complete reports and receipt-bound evidence.
 
 Historical ordinary, child, composite, failed and no-change records remain
-unchanged and readable/exportable. Their manifests, complete bound captures,
+unchanged and readable/exportable, except that artifacts with direct or
+transitive retired-provider lineage (`kimi`, `cursor`, `codex`, `agy`) fail
+closed on public reads and exports with `retired_provider_artifact` while
+`mulgae clean` remains operational. Their manifests, complete bound captures,
 blobs, lineage and retained composite support keep fail-closed integrity.
 Provider-free P0/P1/P2 reconciliation and cleanup ancestry protections remain.
 Retained recovery inventory grants no new rerun, compose or source replay

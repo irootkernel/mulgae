@@ -23,6 +23,7 @@ import platform
 import re
 import shutil
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -371,6 +372,8 @@ def validate_execution_request(
     repo_root: Path,
     suite_name: str,
     suite_cfg: dict[str, Any],
+    *,
+    toolchain_source_root: Path | None = None,
 ) -> dict[str, Any]:
     req = _require_mapping(request_data, "request")
     if req.get("schema") != EXECUTION_REQUEST_SCHEMA:
@@ -450,7 +453,9 @@ def validate_execution_request(
         raise Refusal(f"request.prior_release.tag_commit must be {PRIOR_RELEASE_TAG_COMMIT}")
     if prior_target != PRIOR_RELEASE_INSTALL_TARGET:
         raise Refusal(f"request.prior_release.install_target must be {PRIOR_RELEASE_INSTALL_TARGET}")
-    toolchains = toolchain_versions(repo_root)
+    toolchains = toolchain_versions(
+        toolchain_source_root if toolchain_source_root is not None else _toolchain_base(repo_root)
+    )
     if "toolchains" in req and req["toolchains"] != toolchains:
         raise Refusal("request toolchains differ from the project declarations")
     go_toolchain = "go" + toolchains["PRIOR_GO_VERSION"]
@@ -637,14 +642,27 @@ def remove_owned_tree(root: Path) -> None:
     shutil.rmtree(root)
 
 
+def _toolchain_base(root: Path) -> Path:
+    if os.path.lexists(root / "tools/toolchains.env"):
+        return root
+    if not os.path.lexists(root / "go.mod") and os.path.lexists(root / "source/tools/toolchains.env"):
+        return root / "source"
+    return root
+
+
 def toolchain_root() -> Path:
     base = Path(__file__).resolve().parents[2]
     return base if (base / "go.mod").is_file() else base / "source"
 
 
 def toolchain_versions(root: Path) -> dict[str, str]:
+    path = root / "tools/toolchains.env"
+    try:
+        raw = regular_bytes(path).decode()
+    except (OSError, UnicodeError) as exc:
+        raise Refusal(f"missing or unreadable toolchain declarations: {path}") from exc
     values = {}
-    for line in regular_bytes(root / "tools/toolchains.env").decode().splitlines():
+    for line in raw.splitlines():
         if not line or line.startswith("#"):
             continue
         match = re.fullmatch(r"(GO_VERSION|PYTHON_VERSION|PRIOR_GO_VERSION)=([0-9]+\.[0-9]+\.[0-9]+)", line)

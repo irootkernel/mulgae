@@ -680,8 +680,8 @@ Status: Completed
 Depends on: completed EPIC-009. No EPIC-008 or EPIC-010 dependency.
 
 Execution scope: implement and verify one AGY account first. Multiple-account
-configuration and validation are deferred to the
-[AGY multiple-account candidate](../todo/agy-multiple-accounts.md). TASK-043 is
+configuration and validation are deferred to the retired AGY multiple-account
+candidate. TASK-043 is
 completed under Main's delegated acceptance. TASK-044 is also completed: its six
 current-binary controls, repository checks and independent result reviews pass.
 Main accepted the internal adapter under Master's delegation. TASK-045's plan

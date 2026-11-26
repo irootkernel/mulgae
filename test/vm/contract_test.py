@@ -32,6 +32,7 @@ import haepari_inputs  # noqa: E402
 import host  # noqa: E402
 import guest  # noqa: E402
 import gui  # noqa: E402
+import prepare  # noqa: E402
 
 
 EVIDENCE_KIND = "scripted_cli_host_contract_only"
@@ -804,6 +805,95 @@ emit({"code": "INVALID_REQUEST", "message": "unsupported scripted command", "ret
                 haepari_inputs.validate_guest_identity(
                     json.dumps(chain), platform_name, hypervisor, hardware, SAMPLE_GUEST_UUID, "inst-contract-001"
                 )
+
+    def test_resolve_tool_resolves_pinned_go_and_refuses_bad_executable(self) -> None:
+        resolved = haepari_inputs.resolve_tool(REPO_ROOT, "go", "")
+        self.assertTrue(resolved)
+        self.assertTrue(Path(resolved).is_file())
+        with self.assertRaisesRegex(haepari_inputs.Refusal, "declared toolchain"):
+            haepari_inputs.resolve_tool(REPO_ROOT, "go", str(self.tmp_root / "missing-go"))
+
+    def test_prepare_stages_herdr_tests_and_testdata_and_host_accepts_prepared_dir(self) -> None:
+        head_commit = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        prepared_dir = self.tmp_root / "prepared-candidate"
+        real_run = subprocess.run
+        synthetic_binary = b"synthetic mulgae release binary; never executed\n"
+
+        def stub_go_install(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "install":
+                target = Path(kwargs["env"]["GOBIN"]) / "mulgae"
+                target.write_bytes(synthetic_binary)
+                target.chmod(0o700)
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch.object(prepare.subprocess, "run", side_effect=stub_go_install):
+            receipt = prepare.prepare(REPO_ROOT, prepared_dir, head_commit, "")
+
+        # QA-E-003: herdr tests and test/e2e/testdata/herdr/main.go must be staged.
+        for rel in (
+            "source/internal/adapters/herdr/live_herdr_darwin_test.go",
+            "source/internal/adapters/herdr/testmain_darwin_test.go",
+            "source/test/e2e/testdata/herdr/main.go",
+        ):
+            self.assertIn(rel, receipt["files"])
+            self.assertTrue((prepared_dir / rel).is_file(), f"missing staged file {rel}")
+        self.assertIn("internal/adapters/herdr/live_herdr_darwin_test.go", receipt["production_inputs"])
+        self.assertIn("test/e2e/testdata/herdr/main.go", receipt["test_overlay_files"])
+
+        # QA-E-002: prepared_dir has tools/toolchains.env only under source/.
+        self.assertFalse((prepared_dir / "tools/toolchains.env").exists())
+        self.assertTrue((prepared_dir / "source/tools/toolchains.env").is_file())
+
+        request = self._base_request()
+        request["candidate"]["source_commit"] = receipt["source_commit"]
+        request["candidate"]["binary_sha256"] = receipt["binary_sha256"]
+        request["candidate"]["skill_tree_git_object"] = receipt["skill_tree_git_object"]
+
+        validated = haepari_inputs.validate_execution_request(
+            request,
+            prepared_dir,
+            "guest-qualification",
+            haepari_inputs.DEFAULT_SUITES["guest-qualification"],
+        )
+        self.assertEqual(validated["toolchains"], receipt["toolchains"])
+
+        req_file = self._write_request_file(request, "prepared-request.json")
+        run_dir = self.tmp_root / "run-prepared"
+        code = host.run(
+            [
+                "--haepari", str(self.fake_haepari),
+                "--prepared-dir", str(prepared_dir),
+                "--request", str(req_file),
+                "--resource", "mulgae-qual-vm",
+                "--suite", "guest-qualification",
+                "--mode", "auto",
+                "--run-dir", str(run_dir),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+        # Fail closed when source/tools/toolchains.env is missing, even if a stray top-level file exists.
+        (prepared_dir / "tools").mkdir(mode=0o700)
+        (prepared_dir / "tools/toolchains.env").write_bytes(
+            (prepared_dir / "source/tools/toolchains.env").read_bytes()
+        )
+        (prepared_dir / "source/tools/toolchains.env").unlink()
+        with self.assertRaisesRegex(haepari_inputs.Refusal, "toolchain declarations"):
+            host.run(
+                [
+                    "--haepari", str(self.fake_haepari),
+                    "--prepared-dir", str(prepared_dir),
+                    "--request", str(req_file),
+                    "--resource", "mulgae-qual-vm",
+                    "--suite", "guest-qualification",
+                    "--mode", "auto",
+                    "--run-dir", str(self.tmp_root / "run-prepared-missing"),
+                ]
+            )
 
     def test_guest_entrypoint_refuses_missing_native_parent(self) -> None:
         # No positive guest execution is simulated on the host. Actual guest work remains a separate gate.
