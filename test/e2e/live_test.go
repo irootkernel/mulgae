@@ -344,7 +344,8 @@ func requireLiveE2EEnvironment(t *testing.T) liveE2EEnvironment {
 	}
 	binary := requireLiveExecutable(t, "MULGAE_E2E_BINARY", "")
 	zcodeAppBundle := requireLiveDirectory(t, "MULGAE_E2E_ZCODE_APP_BUNDLE", "/Applications/ZCode.app")
-	profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(context.Background(), environmentadapter.NewInspector(), reviewrun.FamilyZCode, zcodeAppBundle)
+	inspector := environmentadapter.NewStartupDiscoveryInspector(liveFixtureStartupPath(os.Getenv("PATH")))
+	profile, discoverErr := reviewrun.DiscoverProviderProfileWithOverride(context.Background(), inspector, reviewrun.FamilyZCode, zcodeAppBundle)
 	companion := profile.ZCodeCompanion()
 	switch reviewrun.ClassifyVersion(reviewrun.FamilyZCode, companion.Version) {
 	case reviewrun.VersionGreen, reviewrun.VersionYellow:
@@ -542,15 +543,27 @@ func runLiveMulgaeAllowed(t *testing.T, validator *jsonschema.Validator, environ
 }
 
 func liveFixtureCommandEnvironment() []string {
-	// go test prepends GOROOT/bin even when the pinned toolchain wrapper
-	// already supplied it. Preserve lookup order and freeze each entry once.
+	return append(os.Environ(), "PATH="+liveFixtureStartupPath(os.Getenv("PATH")))
+}
+
+func liveFixtureStartupPath(path string) string {
+	// Mulgae freezes existing physical directories. Shell PATH entries can be
+	// stale or alias the same directory, including GOROOT/bin added by go test.
 	var startupPath []string
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if !slices.Contains(startupPath, dir) {
-			startupPath = append(startupPath, dir)
+	for _, dir := range filepath.SplitList(path) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		physical, err := filepath.EvalSymlinks(dir)
+		if err != nil || slices.Contains(startupPath, physical) {
+			continue
+		}
+		info, err := os.Stat(physical)
+		if err == nil && info.IsDir() {
+			startupPath = append(startupPath, physical)
 		}
 	}
-	return append(os.Environ(), "PATH="+strings.Join(startupPath, string(os.PathListSeparator)))
+	return strings.Join(startupPath, string(os.PathListSeparator))
 }
 
 func containsLiveExit(values []int, value int) bool {
@@ -818,6 +831,32 @@ func TestLivePrerequisitePathsFailClosed(t *testing.T) {
 				t.Fatalf("resolveLiveDirectory(%q) error = %v, valid=%t", test.path, err, test.valid)
 			}
 		})
+	}
+}
+
+func TestLiveFixtureCommandEnvironmentCanonicalizesStartupPath(t *testing.T) {
+	root := canonicalTestTempDir(t)
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+	for _, path := range []string{first, second} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(first, alias); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	separator := string(os.PathListSeparator)
+	t.Setenv("PATH", strings.Join([]string{alias, "", filepath.Join(root, "missing"), "relative", file, second, first}, separator))
+
+	command := exec.Cmd{Env: liveFixtureCommandEnvironment()}
+	want := "PATH=" + strings.Join([]string{first, second}, separator)
+	if !slices.Contains(command.Environ(), want) {
+		t.Fatalf("child PATH does not contain the expected canonical directory list %q", want)
 	}
 }
 

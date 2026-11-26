@@ -50,6 +50,11 @@ reproduce a fresh marker stored only in its original source file, never the
 objective, so a report that merely claims it could not read the target does not
 certify original-source access.
 
+Live CLI fixtures resolve startup `PATH` entries to physical directories,
+drop unusable entries, and keep the first occurrence of each directory in
+lookup order. The ZCode prerequisite check uses the same path preparation
+as the Mulgae subprocesses.
+
 `make test` rejects `MULGAE_TEST_INSTALLED_BINARY`,
 `MULGAE_TEST_SOURCE_COMMIT` and `MULGAE_TEST_PREPARED_MANIFEST` overrides.
 Separately authorized [sealed guest owning targets](../../test/vm/README.md)
