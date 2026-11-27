@@ -10,7 +10,7 @@ override PYTHON := "$(CURDIR)/dev" python
 # Children inherit the validated executable inputs, never these command strings.
 unexport GO PYTHON
 TEST_TIMEOUT ?= 90m
-RELEASE_VERSION := v0.1.28
+RELEASE_VERSION := v0.1.29
 MCP_CLIENT_TAGS := mcpclientcheck
 HAEPARI ?= haepari
 RESOURCE ?=
