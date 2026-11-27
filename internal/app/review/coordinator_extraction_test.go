@@ -248,6 +248,9 @@ func TestCoordinatorExtractionProtectedFailuresKeepAuthority(t *testing.T) {
 			}
 			assignments, receipt := coordinatorTestPlan(t)
 			runtime := &coordinatorTestRuntime{invoke: func(_ context.Context, job InvocationJob) AttemptOutcome {
+				if job.Role() != domain.RoleLogic {
+					return coordinatorSuccessOutcome(t, job)
+				}
 				if job.Purpose() == domain.InvocationExtract {
 					return coordinatorConditionOutcome(t, job, condition)
 				}
@@ -258,6 +261,13 @@ func TestCoordinatorExtractionProtectedFailuresKeepAuthority(t *testing.T) {
 			// The logic role accepted a prose report and then saw the protected
 			// failure on its trailer. It must not be projected as a success.
 			summary := coordinatorRoleSummary(t, result, domain.RoleLogic)
+			if len(summary.Attempts()) != 1 {
+				t.Fatalf("condition %q logic attempt count = %d, want 1", condition, len(summary.Attempts()))
+			}
+			invocations := summary.Attempts()[0].Invocations()
+			if len(invocations) != 2 || invocations[0].Purpose() != domain.InvocationInitial || invocations[1].Purpose() != domain.InvocationExtract {
+				t.Fatalf("condition %q logic invocations = %#v, want [initial, extract]", condition, invocations)
+			}
 			if summary.State() == domain.RoleTaskSucceeded {
 				t.Fatalf("condition %q left the logic role succeeded: %#v", condition, summary)
 			}
