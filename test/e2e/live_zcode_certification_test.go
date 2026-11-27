@@ -130,7 +130,10 @@ func TestE2EZCodeArtistAndSyntheticHeartbeat(t *testing.T) {
 			t.Fatalf("synthetic ZCode heartbeat result=%#v error=%v", heartbeat, err)
 		}
 		assertNoProjectProviderLocks(t, project)
-		assertLiveZCodeLaunches(t, observed(), liveDefaultZCodeModel, "max", map[string]int{"Read,Write": 1})
+		// ProviderCurrentQualifier.QualifyCurrent admits one bounded operational
+		// qualification retry on a fresh fixture inside the same namespace graph
+		// (internal/app/reviewrun/current_qualifier.go).
+		assertLiveZCodeLaunchesWithRetries(t, observed(), liveDefaultZCodeModel, "max", map[string]int{"Read,Write": 1}, 1)
 		t.Log("certified live ZCode heartbeat where logic is assigned only to Grok")
 	})
 }
@@ -312,6 +315,11 @@ func liveArgumentValue(argv []string, option string) string {
 
 func assertLiveZCodeLaunches(t *testing.T, launches map[liveZCodeProcessKey]liveZCodeLaunch, model, effort string, expected map[string]int) {
 	t.Helper()
+	assertLiveZCodeLaunchesWithRetries(t, launches, model, effort, expected, 0)
+}
+
+func assertLiveZCodeLaunchesWithRetries(t *testing.T, launches map[liveZCodeProcessKey]liveZCodeLaunch, model, effort string, expected map[string]int, maxQualificationRetries int) {
+	t.Helper()
 	counts := make(map[string]int)
 	graphs := make(map[string]bool)
 	projectBound := false
@@ -326,10 +334,106 @@ func assertLiveZCodeLaunches(t *testing.T, launches map[liveZCodeProcessKey]live
 	if len(graphs) != 1 || len(expected) > 1 && !projectBound {
 		t.Fatal("companion launches did not bind one managed namespace graph to the scenario")
 	}
-	if !maps.Equal(counts, expected) {
-		t.Fatalf("observed companion process counts differ from the expected tool allowlists %v", expected)
+	if !liveZCodeLaunchCountsMatch(counts, expected, maxQualificationRetries) {
+		t.Fatalf("observed companion process counts %v differ from expected tool allowlists %v (max_qualification_retries=%d)", counts, expected, maxQualificationRetries)
 	}
 	t.Logf("observed companion launches by tool allowlist=%v explicit_model=%t explicit_effort=%t", counts, model != "", effort != "")
+}
+
+func liveZCodeLaunchCountsMatch(counts, expected map[string]int, maxQualificationRetries int) bool {
+	if len(counts) != len(expected) {
+		return false
+	}
+	for tools, want := range expected {
+		got, ok := counts[tools]
+		if !ok {
+			return false
+		}
+		if tools == "Read,Write" && maxQualificationRetries > 0 {
+			if got < want || got > want+maxQualificationRetries {
+				return false
+			}
+			continue
+		}
+		if got != want {
+			return false
+		}
+	}
+	return true
+}
+
+func TestLiveZCodeLaunchCountMatching(t *testing.T) {
+	cases := []struct {
+		name                    string
+		counts                  map[string]int
+		expected                map[string]int
+		maxQualificationRetries int
+		want                    bool
+	}{
+		{
+			name:                    "exact_match_zero_retries",
+			counts:                  map[string]int{"Read,Write": 1, "Read,Bash,Write": 1},
+			expected:                map[string]int{"Read,Write": 1, "Read,Bash,Write": 1},
+			maxQualificationRetries: 0,
+			want:                    true,
+		},
+		{
+			name:                    "rejects_plus_one_with_zero_retries",
+			counts:                  map[string]int{"Read,Write": 2},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 0,
+			want:                    false,
+		},
+		{
+			name:                    "accepts_single_attempt_with_one_retry_budget",
+			counts:                  map[string]int{"Read,Write": 1},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 1,
+			want:                    true,
+		},
+		{
+			name:                    "accepts_bounded_retry_with_one_retry_budget",
+			counts:                  map[string]int{"Read,Write": 2},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 1,
+			want:                    true,
+		},
+		{
+			name:                    "rejects_zero_count_with_one_retry_budget",
+			counts:                  map[string]int{"Read,Write": 0},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 1,
+			want:                    false,
+		},
+		{
+			name:                    "rejects_exceeding_retry_budget",
+			counts:                  map[string]int{"Read,Write": 3},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 1,
+			want:                    false,
+		},
+		{
+			name:                    "rejects_extra_allowlist_key",
+			counts:                  map[string]int{"Read,Write": 1, "Read,Bash,Write": 1},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 1,
+			want:                    false,
+		},
+		{
+			name:                    "rejects_wrong_allowlist_key",
+			counts:                  map[string]int{"Read,Grep,Glob,Write": 1},
+			expected:                map[string]int{"Read,Write": 1},
+			maxQualificationRetries: 1,
+			want:                    false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := liveZCodeLaunchCountsMatch(tc.counts, tc.expected, tc.maxQualificationRetries); got != tc.want {
+				t.Fatalf("liveZCodeLaunchCountsMatch(%v, %v, %d) = %t, want %t", tc.counts, tc.expected, tc.maxQualificationRetries, got, tc.want)
+			}
+		})
+	}
 }
 
 // The live observer matches the production reviewer home and admission path.

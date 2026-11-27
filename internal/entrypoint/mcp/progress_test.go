@@ -3,6 +3,7 @@ package mcpentry
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +55,50 @@ func TestProgressStreamIsMonotonicAndStopsExactlyOnce(t *testing.T) {
 	case unexpected := <-notifications:
 		t.Fatalf("unexpected progress notification = %#v", unexpected)
 	default:
+	}
+}
+
+func TestProgressStreamStopsHeartbeatBeforeFinishReturns(t *testing.T) {
+	heartbeats := make(chan time.Time)
+	var stopCalls atomic.Int32
+	var stopCompleted atomic.Bool
+	var terminalNotified atomic.Bool
+	var terminalSawStopped atomic.Bool
+	var terminalSawStopCalls atomic.Int32
+
+	finish := startProgressStream(
+		context.Background(),
+		"review-progress",
+		heartbeats,
+		func() {
+			time.Sleep(5 * time.Millisecond)
+			stopCalls.Add(1)
+			stopCompleted.Store(true)
+		},
+		func(_ context.Context, params *mcpsdk.ProgressNotificationParams) error {
+			if params.Message == "Mulgae review completed." {
+				terminalSawStopped.Store(stopCompleted.Load())
+				terminalSawStopCalls.Store(stopCalls.Load())
+				terminalNotified.Store(true)
+			}
+			return nil
+		},
+	)
+
+	finish("Mulgae review completed.")
+	if !terminalNotified.Load() {
+		t.Fatal("terminal progress notification was not sent")
+	}
+	if !terminalSawStopped.Load() || terminalSawStopCalls.Load() != 1 {
+		t.Fatalf("terminal notification ran before stopHeartbeats completed: stopped=%t calls=%d", terminalSawStopped.Load(), terminalSawStopCalls.Load())
+	}
+	if !stopCompleted.Load() || stopCalls.Load() != 1 {
+		t.Fatalf("finish returned before stopHeartbeats completed: stopped=%t calls=%d", stopCompleted.Load(), stopCalls.Load())
+	}
+
+	finish("must not be sent")
+	if !stopCompleted.Load() || stopCalls.Load() != 1 {
+		t.Fatalf("duplicate finish changed stopHeartbeats state: stopped=%t calls=%d", stopCompleted.Load(), stopCalls.Load())
 	}
 }
 

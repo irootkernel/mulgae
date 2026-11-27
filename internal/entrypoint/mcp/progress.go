@@ -60,12 +60,14 @@ func startProgressStream(
 	streamCtx, cancel := context.WithCancel(ctx)
 	done := make(chan float64, 1)
 	go func() {
-		defer stopHeartbeats()
 		progress := float64(0)
+		defer func() {
+			stopHeartbeats()
+			done <- progress
+		}()
 		for {
 			select {
 			case <-streamCtx.Done():
-				done <- progress
 				return
 			case <-heartbeats:
 				progress++
